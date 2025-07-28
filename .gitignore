@@ -1,0 +1,13 @@
+bin/
+data/
+.DS_Store
+*.log
+*.tmp
+*.bak
+*.swp
+.env
+node_modules/
+dist/
+coverage/
+.vscode/
+.idea/

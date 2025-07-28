@@ -1,0 +1,306 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{.title}} - 交易员监控系统</title>
+    <link href="https://unpkg.com/element-plus/dist/index.css" rel="stylesheet">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <style>
+        body { margin: 0; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; }
+        .header { background: #409EFF; color: white; padding: 1rem; text-align: center; }
+        .container { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+        .card { margin-bottom: 2rem; }
+        .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }
+        .stat-card { text-align: center; padding: 1.5rem; border: 1px solid #ddd; border-radius: 8px; }
+        .stat-value { font-size: 2rem; font-weight: bold; color: #409EFF; }
+        .stat-label { color: #666; margin-top: 0.5rem; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <h1>🚀 Weex 交易员监控系统</h1>
+            <p>实时监控交易员开仓平仓动态</p>
+        </div>
+
+        <div class="container">
+            <!-- 统计信息 -->
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value">{{ stats.total_traders || 0 }}</div>
+                    <div class="stat-label">监控交易员</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">{{ stats.active_orders || 0 }}</div>
+                    <div class="stat-label">活跃订单</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">{{ stats.total_orders || 0 }}</div>
+                    <div class="stat-label">总订单数</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value">{{ stats.notifications_sent || 0 }}</div>
+                    <div class="stat-label">已发通知</div>
+                </div>
+            </div>
+
+            <!-- 交易员管理 -->
+            <el-card class="card">
+                <template #header>
+                    <div style="display: flex; justify-content: space-between; align-items: center;">
+                        <span>交易员管理</span>
+                        <el-button type="primary" @click="showAddTraderDialog = true">
+                            添加交易员
+                        </el-button>
+                    </div>
+                </template>
+
+                <el-table :data="traders" style="width: 100%">
+                    <el-table-column prop="trader_user_id" label="交易员ID" width="150"></el-table-column>
+                    <el-table-column prop="trader_name" label="交易员名称" width="120"></el-table-column>
+                    <el-table-column prop="monitor_interval" label="监控间隔(秒)" width="120"></el-table-column>
+                    <el-table-column prop="is_active" label="状态" width="100">
+                        <template #default="scope">
+                            <el-tag :type="scope.row.is_active ? 'success' : 'danger'">
+                                {{ scope.row.is_active ? '活跃' : '暂停' }}
+                            </el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="created_at" label="创建时间" width="180">
+                        <template #default="scope">
+                            {{ formatDate(scope.row.created_at) }}
+                        </template>
+                    </el-table-column>
+                    <el-table-column label="操作" width="200">
+                        <template #default="scope">
+                            <el-button size="small" @click="editTrader(scope.row)">编辑</el-button>
+                            <el-button 
+                                size="small" 
+                                :type="scope.row.is_active ? 'warning' : 'success'"
+                                @click="toggleTrader(scope.row)">
+                                {{ scope.row.is_active ? '暂停' : '启用' }}
+                            </el-button>
+                            <el-button size="small" type="danger" @click="deleteTrader(scope.row)">删除</el-button>
+                        </template>
+                    </el-table-column>
+                </el-table>
+
+                <el-pagination
+                    background
+                    layout="total, sizes, prev, pager, next, jumper"
+                    :total="traderTotal"
+                    :page-size="traderPageSize"
+                    :current-page="traderPage"
+                    @size-change="handleTraderSizeChange"
+                    @current-change="handleTraderPageChange"
+                    style="margin-top: 1rem;">
+                </el-pagination>
+            </el-card>
+
+            <!-- 订单历史 -->
+            <el-card class="card">
+                <template #header>
+                    <span>订单历史</span>
+                </template>
+
+                <el-table :data="orders" style="width: 100%">
+                    <el-table-column prop="trader_user_id" label="交易员ID" width="120"></el-table-column>
+                    <el-table-column prop="order_id" label="订单ID" width="150"></el-table-column>
+                    <el-table-column prop="position_side" label="方向" width="80"></el-table-column>
+                    <el-table-column prop="open_size" label="数量" width="120"></el-table-column>
+                    <el-table-column prop="open_price" label="价格" width="120"></el-table-column>
+                    <el-table-column prop="open_leverage" label="杠杆" width="80"></el-table-column>
+                    <el-table-column prop="status" label="状态" width="100">
+                        <template #default="scope">
+                            <el-tag :type="scope.row.status === 'ACTIVE' ? 'success' : 'info'">
+                                {{ scope.row.status === 'ACTIVE' ? '活跃' : '已平仓' }}
+                            </el-tag>
+                        </template>
+                    </el-table-column>
+                    <el-table-column prop="first_seen_at" label="开仓时间" width="180">
+                        <template #default="scope">
+                            {{ formatDate(scope.row.first_seen_at) }}
+                        </template>
+                    </el-table-column>
+                </el-table>
+
+                <el-pagination
+                    background
+                    layout="total, sizes, prev, pager, next, jumper"
+                    :total="orderTotal"
+                    :page-size="orderPageSize"
+                    :current-page="orderPage"
+                    @size-change="handleOrderSizeChange"
+                    @current-change="handleOrderPageChange"
+                    style="margin-top: 1rem;">
+                </el-pagination>
+            </el-card>
+        </div>
+
+        <!-- 添加交易员对话框 -->
+        <el-dialog v-model="showAddTraderDialog" title="添加交易员" width="30%">
+            <el-form :model="traderForm" label-width="120px">
+                <el-form-item label="交易员ID" required>
+                    <el-input v-model="traderForm.trader_user_id" placeholder="请输入交易员ID"></el-input>
+                </el-form-item>
+                <el-form-item label="交易员名称">
+                    <el-input v-model="traderForm.trader_name" placeholder="请输入交易员名称"></el-input>
+                </el-form-item>
+                <el-form-item label="监控间隔(秒)">
+                    <el-input-number v-model="traderForm.monitor_interval" :min="10" :max="300" placeholder="30"></el-input-number>
+                </el-form-item>
+            </el-form>
+            <template #footer>
+                <span class="dialog-footer">
+                    <el-button @click="showAddTraderDialog = false">取消</el-button>
+                    <el-button type="primary" @click="saveTrader">保存</el-button>
+                </span>
+            </template>
+        </el-dialog>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        const { ElMessage, ElMessageBox } = ElementPlus;
+
+        createApp({
+            data() {
+                return {
+                    stats: {},
+                    traders: [],
+                    orders: [],
+                    traderTotal: 0,
+                    traderPage: 1,
+                    traderPageSize: 10,
+                    orderTotal: 0,
+                    orderPage: 1,
+                    orderPageSize: 20,
+                    showAddTraderDialog: false,
+                    traderForm: {
+                        trader_user_id: '',
+                        trader_name: '',
+                        monitor_interval: 30
+                    },
+                    editingTrader: null
+                }
+            },
+            mounted() {
+                this.loadStats();
+                this.loadTraders();
+                this.loadOrders();
+                // 定时刷新数据
+                setInterval(() => {
+                    this.loadStats();
+                    this.loadOrders();
+                }, 30000);
+            },
+            methods: {
+                async loadStats() {
+                    try {
+                        const response = await axios.get('/api/v1/orders/statistics');
+                        this.stats = response.data.data;
+                    } catch (error) {
+                        console.error('Load stats failed:', error);
+                    }
+                },
+                async loadTraders() {
+                    try {
+                        const response = await axios.get(`/api/v1/traders?page=${this.traderPage}&size=${this.traderPageSize}`);
+                        this.traders = response.data.data;
+                        this.traderTotal = response.data.total;
+                    } catch (error) {
+                        ElMessage.error('加载交易员列表失败');
+                    }
+                },
+                async loadOrders() {
+                    try {
+                        const response = await axios.get(`/api/v1/orders?page=${this.orderPage}&size=${this.orderPageSize}`);
+                        this.orders = response.data.data;
+                        this.orderTotal = response.data.total;
+                    } catch (error) {
+                        ElMessage.error('加载订单历史失败');
+                    }
+                },
+                async saveTrader() {
+                    try {
+                        if (this.editingTrader) {
+                            await axios.put(`/api/v1/traders/${this.editingTrader.id}`, this.traderForm);
+                            ElMessage.success('更新成功');
+                        } else {
+                            await axios.post('/api/v1/traders', this.traderForm);
+                            ElMessage.success('添加成功');
+                        }
+                        this.showAddTraderDialog = false;
+                        this.resetTraderForm();
+                        this.loadTraders();
+                    } catch (error) {
+                        ElMessage.error(error.response?.data?.message || '操作失败');
+                    }
+                },
+                editTrader(trader) {
+                    this.editingTrader = trader;
+                    this.traderForm = { ...trader };
+                    this.showAddTraderDialog = true;
+                },
+                async toggleTrader(trader) {
+                    try {
+                        await axios.post(`/api/v1/traders/${trader.id}/toggle`, {
+                            is_active: !trader.is_active
+                        });
+                        ElMessage.success('状态更新成功');
+                        this.loadTraders();
+                    } catch (error) {
+                        ElMessage.error('状态更新失败');
+                    }
+                },
+                async deleteTrader(trader) {
+                    try {
+                        await ElMessageBox.confirm('确定要删除这个交易员吗？', '确认删除', {
+                            confirmButtonText: '确定',
+                            cancelButtonText: '取消',
+                            type: 'warning',
+                        });
+                        await axios.delete(`/api/v1/traders/${trader.id}`);
+                        ElMessage.success('删除成功');
+                        this.loadTraders();
+                    } catch (error) {
+                        if (error !== 'cancel') {
+                            ElMessage.error('删除失败');
+                        }
+                    }
+                },
+                resetTraderForm() {
+                    this.traderForm = {
+                        trader_user_id: '',
+                        trader_name: '',
+                        monitor_interval: 30
+                    };
+                    this.editingTrader = null;
+                },
+                handleTraderSizeChange(size) {
+                    this.traderPageSize = size;
+                    this.loadTraders();
+                },
+                handleTraderPageChange(page) {
+                    this.traderPage = page;
+                    this.loadTraders();
+                },
+                handleOrderSizeChange(size) {
+                    this.orderPageSize = size;
+                    this.loadOrders();
+                },
+                handleOrderPageChange(page) {
+                    this.orderPage = page;
+                    this.loadOrders();
+                },
+                formatDate(dateStr) {
+                    return new Date(dateStr).toLocaleString('zh-CN');
+                }
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

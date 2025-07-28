@@ -1,0 +1,69 @@
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0.43
+    container_name: weex-monitor-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: weex_root_pwd
+      MYSQL_DATABASE: weex_monitor
+      MYSQL_USER: weex_user
+      MYSQL_PASSWORD: weex_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - ./data/mysql_data:/var/lib/mysql
+      - ./scripts/init.sql:/docker-entrypoint-initdb.d/init.sql
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - weex-network
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      timeout: 20s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    container_name: weex-monitor-redis
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data/redis_data:/data
+    networks:
+      - weex-network
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      timeout: 3s
+      retries: 5
+
+  # app:
+  #   build: .
+  #   container_name: weex-monitor-app
+  #   ports:
+  #     - "8080:8080"
+  #   environment:
+  #     - WEEX_DATABASE_HOST=mysql
+  #     - WEEX_DATABASE_USER=weex_user
+  #     - WEEX_DATABASE_PASSWORD=weex_password
+  #     - WEEX_DATABASE_DBNAME=weex_monitor
+  #     - WEEX_REDIS_HOST=redis
+  #     - WEEX_REDIS_PORT=6379
+  #   depends_on:
+  #     mysql:
+  #       condition: service_healthy
+  #     redis:
+  #       condition: service_healthy
+  #   volumes:
+  #     - ./config:/app/config
+  #     - ./logs:/app/logs
+  #   networks:
+  #     - weex-network
+  #   restart: unless-stopped
+
+volumes:
+  mysql_data:
+  redis_data:
+
+networks:
+  weex-network:
+    driver: bridge

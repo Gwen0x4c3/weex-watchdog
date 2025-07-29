@@ -4,18 +4,22 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"sync"
 	"time"
 
 	"weex-watchdog/internal/model"
 	"weex-watchdog/internal/repository"
 	"weex-watchdog/pkg/logger"
 	"weex-watchdog/pkg/notification"
+	"weex-watchdog/pkg/weex"
 )
 
 // TraderService 交易员服务
 type TraderService struct {
-	traderRepo repository.TraderRepository
-	logger     *logger.Logger
+	traderRepo     repository.TraderRepository
+	logger         *logger.Logger
+	monitorService *MonitorService // 添加对监控服务的引用
 }
 
 // NewTraderService 创建交易员服务
@@ -24,6 +28,11 @@ func NewTraderService(traderRepo repository.TraderRepository, logger *logger.Log
 		traderRepo: traderRepo,
 		logger:     logger,
 	}
+}
+
+// SetMonitorService 设置监控服务引用（避免循环依赖）
+func (s *TraderService) SetMonitorService(monitorService *MonitorService) {
+	s.monitorService = monitorService
 }
 
 // CreateTrader 创建交易员监控
@@ -50,7 +59,17 @@ func (s *TraderService) GetTraderByID(id uint) (*model.TraderMonitor, error) {
 
 // UpdateTrader 更新交易员信息
 func (s *TraderService) UpdateTrader(trader *model.TraderMonitor) error {
-	return s.traderRepo.Update(trader)
+	err := s.traderRepo.Update(trader)
+	if err != nil {
+		return err
+	}
+
+	// 清理监控缓存，以便新的监控间隔立即生效
+	if s.monitorService != nil {
+		s.monitorService.ClearTraderCache(trader.TraderUserID)
+	}
+
+	return nil
 }
 
 // DeleteTrader 删除交易员
@@ -77,6 +96,8 @@ type MonitorService struct {
 	httpClient          *http.Client
 	logger              *logger.Logger
 	apiURL              string
+	traderLastCheck     map[string]time.Time // 记录每个交易员最后检查时间
+	mu                  sync.RWMutex         // 保护 traderLastCheck 的并发访问
 }
 
 // NewMonitorService 创建监控服务
@@ -96,40 +117,21 @@ func NewMonitorService(
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		logger: logger,
-		apiURL: apiURL,
+		logger:          logger,
+		apiURL:          apiURL,
+		traderLastCheck: make(map[string]time.Time),
 	}
-}
-
-// WeexOrder Weex API返回的订单结构
-type WeexOrder struct {
-	OrderID      string `json:"orderId"`
-	PositionSide string `json:"positionSide"`
-	Size         string `json:"size"`
-	Price        string `json:"price"`
-	Leverage     string `json:"leverage"`
-	// 其他字段...
-}
-
-// WeexResponse Weex API响应结构
-type WeexResponse struct {
-	Success bool        `json:"success"`
-	Data    []WeexOrder `json:"data"`
-	Message string      `json:"message"`
 }
 
 // StartMonitoring 启动监控
 func (s *MonitorService) StartMonitoring() {
 	s.logger.Logger.Info("Starting monitoring service")
 
-	ticker := time.NewTicker(30 * time.Second)
+	ticker := time.NewTicker(1 * time.Second) // 改为1秒间隔
 	defer ticker.Stop()
 
-	for {
-		select {
-		case <-ticker.C:
-			s.monitorAllTraders()
-		}
+	for range ticker.C {
+		s.monitorAllTraders()
 	}
 }
 
@@ -141,16 +143,40 @@ func (s *MonitorService) monitorAllTraders() {
 		return
 	}
 
-	s.logger.WithField("count", len(traders)).Info("Monitoring traders")
-
+	now := time.Now()
+	
 	for _, trader := range traders {
-		go s.monitorSingleTrader(trader)
+		// 检查是否需要监控这个交易员
+		if s.shouldMonitorTrader(trader, now) {
+			go s.monitorSingleTrader(trader, now)
+		}
 	}
 }
 
+// shouldMonitorTrader 判断是否应该监控某个交易员
+func (s *MonitorService) shouldMonitorTrader(trader model.TraderMonitor, now time.Time) bool {
+	s.mu.RLock()
+	lastCheck, exists := s.traderLastCheck[trader.TraderUserID]
+	s.mu.RUnlock()
+
+	// 如果从未检查过，或者距离上次检查已经超过了设定的间隔
+	if !exists || now.Sub(lastCheck) >= time.Duration(trader.MonitorInterval)*time.Second {
+		// 更新最后检查时间
+		s.mu.Lock()
+		s.traderLastCheck[trader.TraderUserID] = now
+		s.mu.Unlock()
+		return true
+	}
+
+	return false
+}
+
 // monitorSingleTrader 监控单个交易员
-func (s *MonitorService) monitorSingleTrader(trader model.TraderMonitor) {
-	s.logger.WithField("trader_id", trader.TraderUserID).Debug("Monitoring trader")
+func (s *MonitorService) monitorSingleTrader(trader model.TraderMonitor, _ time.Time) {
+	s.logger.WithFields(map[string]interface{}{
+		"trader_id": trader.TraderUserID,
+		"interval":  trader.MonitorInterval,
+	}).Debug("Monitoring trader")
 
 	// 获取当前订单
 	orders, err := s.fetchTraderOrders(trader.TraderUserID)
@@ -170,55 +196,63 @@ func (s *MonitorService) monitorSingleTrader(trader model.TraderMonitor) {
 }
 
 // fetchTraderOrders 获取交易员订单
-func (s *MonitorService) fetchTraderOrders(traderUserID string) ([]WeexOrder, error) {
-	url := fmt.Sprintf("%s?userId=%s", s.apiURL, traderUserID)
+func (s *MonitorService) fetchTraderOrders(traderUserID string) ([]weex.OpenOrder, error) {
+	// 将 traderUserID 转换为 uint
+	traderID, err := strconv.ParseUint(traderUserID, 10, 32)
+	if err != nil {
+		return nil, fmt.Errorf("invalid trader user ID: %w", err)
+	}
 
-	resp, err := s.httpClient.Get(url)
+	// 使用新的 GetOpenOrderList 函数
+	orders, err := weex.GetOpenOrderList(uint(traderID))
 	if err != nil {
 		return nil, fmt.Errorf("failed to fetch orders: %w", err)
 	}
-	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API returned status: %d", resp.StatusCode)
-	}
-
-	var response WeexResponse
-	if err := json.NewDecoder(resp.Body).Decode(&response); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
-	}
-
-	if !response.Success {
-		return nil, fmt.Errorf("API error: %s", response.Message)
-	}
-
-	return response.Data, nil
+	return orders, nil
 }
 
 // detectNewOrders 检测新订单
-func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []WeexOrder) {
+func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []weex.OpenOrder) {
 	for _, order := range currentOrders {
 		// 检查订单是否已存在
-		existing, err := s.orderRepo.GetByTraderAndOrderID(traderUserID, order.OrderID)
+		existing, err := s.orderRepo.GetByTraderAndOrderID(traderUserID, order.OpenOrderID)
 		if err != nil || existing == nil {
 			// 新订单
+			// 解析创建时间字符串为时间戳
+			createdTime, err := strconv.ParseInt(order.CreatedTime, 10, 64)
+			if err != nil {
+				s.logger.WithFields(map[string]interface{}{
+					"trader_id":    traderUserID,
+					"order_id":     order.OpenOrderID,
+					"created_time": order.CreatedTime,
+					"error":        err,
+				}).Error("Failed to parse created time")
+				createdTime = time.Now().UnixMilli() // 使用当前时间作为fallback
+			}
+
+			// 获取交易对名称
+			contractMapper := weex.GetContractMapper()
+			symbolName := contractMapper.GetSymbolName(order.ContractID)
+
 			orderHistory := &model.OrderHistory{
-				TraderUserID: traderUserID,
-				OrderID:      order.OrderID,
-				OrderData:    s.convertToJSON(order),
-				Status:       model.OrderStatusActive,
-				PositionSide: order.PositionSide,
-				OpenSize:     order.Size,
-				OpenPrice:    order.Price,
-				OpenLeverage: order.Leverage,
-				FirstSeenAt:  time.Now(),
-				LastSeenAt:   time.Now(),
+				TraderUserID:   traderUserID,
+				OrderID:        order.OpenOrderID,
+				OrderData:      s.convertToJSON(order),
+				ContractSymbol: symbolName,
+				Status:         model.OrderStatusActive,
+				PositionSide:   order.PositionSide,
+				OpenSize:       order.OpenSize,
+				OpenPrice:      order.AverageOpenPrice,
+				OpenLeverage:   order.OpenLeverage + "x",
+				FirstSeenAt:    time.UnixMilli(createdTime),
+				LastSeenAt:     time.Now(),
 			}
 
 			if err := s.orderRepo.Create(orderHistory); err != nil {
 				s.logger.WithFields(map[string]interface{}{
 					"trader_id": traderUserID,
-					"order_id":  order.OrderID,
+					"order_id":  order.OpenOrderID,
 					"error":     err,
 				}).Error("Failed to save new order")
 				continue
@@ -229,14 +263,14 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []We
 
 			s.logger.WithFields(map[string]interface{}{
 				"trader_id": traderUserID,
-				"order_id":  order.OrderID,
+				"order_id":  order.OpenOrderID,
 			}).Info("New order detected")
 		}
 	}
 }
 
 // detectClosedOrders 检测平仓订单
-func (s *MonitorService) detectClosedOrders(traderUserID string, currentOrders []WeexOrder) {
+func (s *MonitorService) detectClosedOrders(traderUserID string, currentOrders []weex.OpenOrder) {
 	// 获取数据库中的活跃订单
 	activeOrders, err := s.orderRepo.GetActiveOrdersByTrader(traderUserID)
 	if err != nil {
@@ -250,7 +284,7 @@ func (s *MonitorService) detectClosedOrders(traderUserID string, currentOrders [
 	// 创建当前订单ID映射
 	currentOrderIDs := make(map[string]bool)
 	for _, order := range currentOrders {
-		currentOrderIDs[order.OrderID] = true
+		currentOrderIDs[order.OpenOrderID] = true
 	}
 
 	// 检查哪些活跃订单在当前订单中不存在（已平仓）
@@ -333,11 +367,27 @@ func (s *MonitorService) sendCloseOrderNotification(order *model.OrderHistory) {
 }
 
 // convertToJSON 转换为JSON
-func (s *MonitorService) convertToJSON(order WeexOrder) model.JSON {
+func (s *MonitorService) convertToJSON(order weex.OpenOrder) model.JSON {
 	data := make(map[string]interface{})
 	orderBytes, _ := json.Marshal(order)
 	json.Unmarshal(orderBytes, &data)
 	return data
+}
+
+// ClearTraderCache 清理交易员的监控缓存（当交易员信息更新时调用）
+func (s *MonitorService) ClearTraderCache(traderUserID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.traderLastCheck, traderUserID)
+	s.logger.WithField("trader_id", traderUserID).Debug("Cleared trader monitoring cache")
+}
+
+// RefreshAllTraderCache 刷新所有交易员的监控缓存
+func (s *MonitorService) RefreshAllTraderCache() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.traderLastCheck = make(map[string]time.Time)
+	s.logger.Info("Refreshed all trader monitoring cache")
 }
 
 // OrderService 订单服务

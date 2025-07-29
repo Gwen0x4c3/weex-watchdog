@@ -72,12 +72,9 @@ func (r *Router) SetupRoutes(engine *gin.Engine) {
 
 	// 静态文件服务
 	engine.Static("/static", "./web/static")
-	engine.LoadHTMLGlob("web/templates/*")
 
-	// 默认页面
+	// 默认页面 - 重定向到静态文件
 	engine.GET("/", func(c *gin.Context) {
-		c.HTML(200, "index.html", gin.H{
-			"title": "Weex Monitor",
-		})
+		c.Redirect(302, "/static/index.html")
 	})
 }

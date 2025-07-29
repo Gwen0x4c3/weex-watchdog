@@ -59,18 +59,19 @@ func (j *JSON) Scan(value interface{}) error {
 
 // OrderHistory 订单历史记录
 type OrderHistory struct {
-	ID           uint        `json:"id" gorm:"primaryKey"`
-	TraderUserID string      `json:"trader_user_id" gorm:"type:varchar(50);not null;index"`
-	OrderID      string      `json:"order_id" gorm:"type:varchar(50);not null"`
-	OrderData    JSON        `json:"order_data" gorm:"type:json"`
-	Status       OrderStatus `json:"status" gorm:"type:enum('ACTIVE','CLOSED');default:'ACTIVE';index"`
-	PositionSide string      `json:"position_side" gorm:"type:varchar(10)"`
-	OpenSize     string      `json:"open_size" gorm:"type:decimal(20,8)"`
-	OpenPrice    string      `json:"open_price" gorm:"type:decimal(20,8)"`
-	OpenLeverage string      `json:"open_leverage" gorm:"type:varchar(10)"`
-	FirstSeenAt  time.Time   `json:"first_seen_at" gorm:"index"`
-	LastSeenAt   time.Time   `json:"last_seen_at"`
-	ClosedAt     *time.Time  `json:"closed_at"`
+	ID             uint        `json:"id" gorm:"primaryKey"`
+	TraderUserID   string      `json:"trader_user_id" gorm:"type:varchar(50);not null;index"`
+	OrderID        string      `json:"order_id" gorm:"type:varchar(50);not null"`
+	OrderData      JSON        `json:"order_data" gorm:"type:json"`
+	ContractSymbol string      `json:"contract_symbol" gorm:"type:varchar(50);not null"`
+	Status         OrderStatus `json:"status" gorm:"type:enum('ACTIVE','CLOSED');default:'ACTIVE';index"`
+	PositionSide   string      `json:"position_side" gorm:"type:varchar(10)"`
+	OpenSize       string      `json:"open_size" gorm:"type:decimal(20,8)"`
+	OpenPrice      string      `json:"open_price" gorm:"type:decimal(20,8)"`
+	OpenLeverage   string      `json:"open_leverage" gorm:"type:varchar(10)"`
+	FirstSeenAt    time.Time   `json:"first_seen_at" gorm:"index"`
+	LastSeenAt     time.Time   `json:"last_seen_at"`
+	ClosedAt       *time.Time  `json:"closed_at"`
 }
 
 // TableName 指定表名

@@ -17,6 +17,7 @@ CREATE TABLE order_history (
     trader_user_id VARCHAR(50) NOT NULL COMMENT '交易员ID',
     order_id VARCHAR(50) NOT NULL COMMENT '订单ID',
     order_data JSON COMMENT '完整订单JSON数据',
+    contract_symbol VARCHAR(50) COMMENT '合约标识，如BTCUSDT',
     status ENUM('ACTIVE', 'CLOSED') DEFAULT 'ACTIVE' COMMENT '订单状态',
     position_side VARCHAR(10) COMMENT '持仓方向',
     open_size DECIMAL(20,8) COMMENT '开仓数量',

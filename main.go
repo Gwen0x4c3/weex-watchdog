@@ -16,6 +16,7 @@ import (
 	"weex-watchdog/pkg/database"
 	"weex-watchdog/pkg/logger"
 	"weex-watchdog/pkg/notification"
+	"weex-watchdog/pkg/weex"
 )
 
 // Config 应用配置
@@ -67,6 +68,16 @@ func main() {
 	}
 	appLogger.Info("Database initialized successfully")
 
+	// 加载合约映射
+	appLogger.Info("Loading contract mappings...")
+	contractMapper := weex.GetContractMapper()
+	if err := contractMapper.LoadContractMapping(); err != nil {
+		appLogger.Error("Failed to load contract mappings (will continue with empty mappings):", err)
+	} else {
+		mappingCount := contractMapper.GetMappingCount()
+		appLogger.Info("Contract mappings loaded successfully, total contracts:", mappingCount)
+	}
+
 	// 初始化仓库
 	traderRepo := repository.NewTraderRepository(db)
 	orderRepo := repository.NewOrderRepository(db)
@@ -87,6 +98,7 @@ func main() {
 		appLogger,
 		config.Weex.APIURL,
 	)
+	traderService.SetMonitorService(monitorService)
 
 	// 初始化处理器
 	traderHandler := handler.NewTraderHandler(traderService, appLogger)

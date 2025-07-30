@@ -34,6 +34,7 @@ type OrderRepository interface {
 type NotificationRepository interface {
 	Create(log *model.NotificationLog) error
 	UpdateStatus(id uint, status model.NotificationStatus, errorMsg string) error
+	UpdateStatusBatch(ids []uint, status model.NotificationStatus, errorMsg string) error
 	GetLogs(traderUserID string, offset, limit int) ([]model.NotificationLog, int64, error)
 }
 
@@ -212,6 +213,16 @@ func (r *notificationRepository) UpdateStatus(id uint, status model.Notification
 		updates["error_msg"] = errorMsg
 	}
 	return r.db.Model(&model.NotificationLog{}).Where("id = ?", id).Updates(updates).Error
+}
+
+func (r *notificationRepository) UpdateStatusBatch(ids []uint, status model.NotificationStatus, errorMsg string) error {
+	updates := map[string]interface{}{
+		"status": status,
+	}
+	if errorMsg != "" {
+		updates["error_msg"] = errorMsg
+	}
+	return r.db.Model(&model.NotificationLog{}).Where("id IN ?", ids).Updates(updates).Error
 }
 
 func (r *notificationRepository) GetLogs(traderUserID string, offset, limit int) ([]model.NotificationLog, int64, error) {

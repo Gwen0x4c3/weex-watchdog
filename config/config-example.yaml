@@ -1,0 +1,43 @@
+server:
+  port: 8080
+  mode: debug
+
+database:
+  host: localhost
+  port: 3306
+  user: weex_user
+  password: weex_password
+  dbname: weex_monitor
+  charset: utf8mb4
+  parse_time: true
+  loc: Local
+
+redis:
+  host: localhost
+  port: 6379
+  db: 0
+
+weex:
+  api_url: "https://http-gateway1.janapw.com/api/v1/public/trace/getOpenOrderList"
+  timeout: 30s
+  retry_times: 3
+
+monitor:
+  default_interval: 10s
+  max_goroutines: 100
+
+notification:
+  supplier: wxpusher
+  wecom:
+    cid: your_corp_id
+    agent_id: your_agent_id
+    secret: your_secret_key
+    timeout: 10s
+  wxpusher:
+    app_token: your_app_token
+    uid: your_user_id
+
+log:
+  level: info
+  format: json
+  output: both

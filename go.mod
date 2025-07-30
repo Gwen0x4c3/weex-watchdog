@@ -8,7 +8,7 @@ require (
 	github.com/gin-gonic/gin v1.10.1
 	github.com/sirupsen/logrus v1.9.3
 	github.com/spf13/viper v1.20.1
-	golang.org/x/exp v0.0.0-20250718183923-645b1fa84792
+	github.com/wxpusher/wxpusher-sdk-go v1.0.3
 	gorm.io/driver/mysql v1.5.1
 	gorm.io/gorm v1.25.4
 )

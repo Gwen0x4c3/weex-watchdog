@@ -84,17 +84,21 @@ func main() {
 	notificationRepo := repository.NewNotificationRepository(db)
 
 	// 初始化通知服务
-	notificationService := notification.NewHTTPNotificationService(&config.Notification)
+	notificationClient, err := notification.CreateClient(&config.Notification)
+	if err != nil {
+		appLogger.Error("Failed to create notification client:", err)
+		os.Exit(1)
+	}
 
 	// 初始化业务服务
 	traderService := service.NewTraderService(traderRepo, appLogger)
 	orderService := service.NewOrderService(orderRepo, appLogger)
-	notificationSvc := service.NewNotificationService(notificationRepo, appLogger)
+	notificationService := service.NewNotificationService(notificationRepo, notificationClient, appLogger)
 	monitorService := service.NewMonitorService(
 		traderRepo,
 		orderRepo,
 		notificationRepo,
-		notificationService,
+		notificationClient,
 		appLogger,
 		config.Weex.APIURL,
 	)
@@ -103,7 +107,7 @@ func main() {
 	// 初始化处理器
 	traderHandler := handler.NewTraderHandler(traderService, appLogger)
 	orderHandler := handler.NewOrderHandler(orderService, appLogger)
-	notificationHandler := handler.NewNotificationHandler(notificationSvc, appLogger)
+	notificationHandler := handler.NewNotificationHandler(notificationService, appLogger)
 
 	// 设置Gin模式
 	gin.SetMode(config.Server.Mode)

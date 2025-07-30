@@ -10,6 +10,7 @@ import (
 
 	"weex-watchdog/internal/model"
 	"weex-watchdog/internal/repository"
+	"weex-watchdog/pkg/constant"
 	"weex-watchdog/pkg/logger"
 	"weex-watchdog/pkg/notification"
 	"weex-watchdog/pkg/weex"
@@ -92,7 +93,7 @@ type MonitorService struct {
 	traderRepo          repository.TraderRepository
 	orderRepo           repository.OrderRepository
 	notificationRepo    repository.NotificationRepository
-	notificationService notification.Service
+	notificationService notification.Client
 	httpClient          *http.Client
 	logger              *logger.Logger
 	apiURL              string
@@ -105,7 +106,7 @@ func NewMonitorService(
 	traderRepo repository.TraderRepository,
 	orderRepo repository.OrderRepository,
 	notificationRepo repository.NotificationRepository,
-	notificationService notification.Service,
+	notificationService notification.Client,
 	logger *logger.Logger,
 	apiURL string,
 ) *MonitorService {
@@ -144,7 +145,7 @@ func (s *MonitorService) monitorAllTraders() {
 	}
 
 	now := time.Now()
-	
+
 	for _, trader := range traders {
 		// 检查是否需要监控这个交易员
 		if s.shouldMonitorTrader(trader, now) {
@@ -176,7 +177,7 @@ func (s *MonitorService) monitorSingleTrader(trader model.TraderMonitor, _ time.
 	s.logger.WithFields(map[string]interface{}{
 		"trader_id": trader.TraderUserID,
 		"interval":  trader.MonitorInterval,
-	}).Debug("Monitoring trader")
+	}).Info("Monitoring trader")
 
 	// 获取当前订单
 	orders, err := s.fetchTraderOrders(trader.TraderUserID)
@@ -198,7 +199,7 @@ func (s *MonitorService) monitorSingleTrader(trader model.TraderMonitor, _ time.
 // fetchTraderOrders 获取交易员订单
 func (s *MonitorService) fetchTraderOrders(traderUserID string) ([]weex.OpenOrder, error) {
 	// 将 traderUserID 转换为 uint
-	traderID, err := strconv.ParseUint(traderUserID, 10, 32)
+	traderID, err := strconv.ParseUint(traderUserID, 10, 64)
 	if err != nil {
 		return nil, fmt.Errorf("invalid trader user ID: %w", err)
 	}
@@ -214,6 +215,7 @@ func (s *MonitorService) fetchTraderOrders(traderUserID string) ([]weex.OpenOrde
 
 // detectNewOrders 检测新订单
 func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []weex.OpenOrder) {
+	newOrders := make([]*model.OrderHistory, 0)
 	for _, order := range currentOrders {
 		// 检查订单是否已存在
 		existing, err := s.orderRepo.GetByTraderAndOrderID(traderUserID, order.OpenOrderID)
@@ -258,8 +260,8 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 				continue
 			}
 
-			// 发送通知
-			s.sendNewOrderNotification(orderHistory)
+			// 添加到新订单列表
+			newOrders = append(newOrders, orderHistory)
 
 			s.logger.WithFields(map[string]interface{}{
 				"trader_id": traderUserID,
@@ -267,6 +269,8 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 			}).Info("New order detected")
 		}
 	}
+	// 统一发送开仓通知
+	s.sendNewOrderNotification(newOrders)
 }
 
 // detectClosedOrders 检测平仓订单
@@ -287,6 +291,7 @@ func (s *MonitorService) detectClosedOrders(traderUserID string, currentOrders [
 		currentOrderIDs[order.OpenOrderID] = true
 	}
 
+	closedOrders := make([]*model.OrderHistory, 0)
 	// 检查哪些活跃订单在当前订单中不存在（已平仓）
 	for _, activeOrder := range activeOrders {
 		if !currentOrderIDs[activeOrder.OrderID] {
@@ -305,8 +310,7 @@ func (s *MonitorService) detectClosedOrders(traderUserID string, currentOrders [
 			activeOrder.Status = model.OrderStatusClosed
 			activeOrder.ClosedAt = &now
 
-			// 发送通知
-			s.sendCloseOrderNotification(&activeOrder)
+			closedOrders = append(closedOrders, &activeOrder)
 
 			s.logger.WithFields(map[string]interface{}{
 				"trader_id": traderUserID,
@@ -314,55 +318,101 @@ func (s *MonitorService) detectClosedOrders(traderUserID string, currentOrders [
 			}).Info("Order closed detected")
 		}
 	}
+
+	// 发送平仓通知
+	s.sendCloseOrderNotification(closedOrders)
+
 }
 
 // sendNewOrderNotification 发送新订单通知
-func (s *MonitorService) sendNewOrderNotification(order *model.OrderHistory) {
-	// 记录通知日志
-	notificationLog := &model.NotificationLog{
-		TraderUserID:     order.TraderUserID,
-		OrderID:          order.OrderID,
-		NotificationType: model.NotificationTypeNewOrder,
-		Status:           model.NotificationStatusPending,
-		SentAt:           time.Now(),
-	}
-
-	if err := s.notificationRepo.Create(notificationLog); err != nil {
-		s.logger.WithField("error", err).Error("Failed to create notification log")
+func (s *MonitorService) sendNewOrderNotification(newOrders []*model.OrderHistory) {
+	if len(newOrders) == 0 {
 		return
 	}
+	message := ""
+	notificationIds := make([]uint, 0)
+	for _, order := range newOrders {
+		// 记录通知日志
+		notificationLog := &model.NotificationLog{
+			TraderUserID:     order.TraderUserID,
+			OrderID:          order.OrderID,
+			NotificationType: model.NotificationTypeNewOrder,
+			Status:           model.NotificationStatusPending,
+			SentAt:           time.Now(),
+		}
 
+		if err := s.notificationRepo.Create(notificationLog); err != nil {
+			s.logger.WithField("error", err).Error("Failed to create notification log")
+			return
+		}
+
+		notificationIds = append(notificationIds, notificationLog.ID)
+		if message != "" {
+			message += "\n\n"
+		} else {
+			message = `<div style="border: 2px solid #007bff; border-radius: 8px; padding: 8px; background-color: #f8f9fa; margin: 5px 0;">
+<h3 style="color: #007bff; margin: 0 0 6px 0;padding:0">🆕 新开仓提醒</h3><br/>`
+		}
+		message += s.notificationService.BuildNotificationMessage(order, constant.PositionLong)
+	}
 	// 发送通知
-	if err := s.notificationService.SendNewOrderNotification(order); err != nil {
-		s.notificationRepo.UpdateStatus(notificationLog.ID, model.NotificationStatusFailed, err.Error())
+	notificationMsg := &notification.NotificationMessage{
+		Type: string(model.NotificationTypeNewOrder),
+		Message: message,
+	}
+	
+	if err := s.notificationService.SendMessage(*notificationMsg); err != nil {
 		s.logger.WithField("error", err).Error("Failed to send new order notification")
+		s.notificationRepo.UpdateStatusBatch(notificationIds, model.NotificationStatusFailed, err.Error())
 	} else {
-		s.notificationRepo.UpdateStatus(notificationLog.ID, model.NotificationStatusSuccess, "")
+		s.notificationRepo.UpdateStatusBatch(notificationIds, model.NotificationStatusSuccess, "")
 	}
 }
 
 // sendCloseOrderNotification 发送平仓通知
-func (s *MonitorService) sendCloseOrderNotification(order *model.OrderHistory) {
-	// 记录通知日志
-	notificationLog := &model.NotificationLog{
-		TraderUserID:     order.TraderUserID,
-		OrderID:          order.OrderID,
-		NotificationType: model.NotificationTypeOrderClosed,
-		Status:           model.NotificationStatusPending,
-		SentAt:           time.Now(),
-	}
-
-	if err := s.notificationRepo.Create(notificationLog); err != nil {
-		s.logger.WithField("error", err).Error("Failed to create notification log")
+func (s *MonitorService) sendCloseOrderNotification(closedOrders []*model.OrderHistory) {
+	if len(closedOrders) == 0 {
 		return
 	}
+	message := ""
+	notificationIds := make([]uint, 0)
+	
+	for _, order := range closedOrders {
+		// 记录通知日志
+		notificationLog := &model.NotificationLog{
+			TraderUserID:     order.TraderUserID,
+			OrderID:          order.OrderID,
+			NotificationType: model.NotificationTypeOrderClosed,
+			Status:           model.NotificationStatusPending,
+			SentAt:           time.Now(),
+		}
 
+		if err := s.notificationRepo.Create(notificationLog); err != nil {
+			s.logger.WithField("error", err).Error("Failed to create notification log")
+			continue
+		}
+
+		notificationIds = append(notificationIds, notificationLog.ID)
+		if message != "" {
+			message += "\n\n"
+		} else {
+			message = `<div style="border: 2px solid #6c757d; border-radius: 8px; padding: 8px; background-color: #f8f9fa; margin: 5px 0;">
+<h3 style="color: #6c757d; margin: 0 0 6px 0;">❌ 平仓提醒</h3><br/>`
+		}
+		message += s.notificationService.BuildNotificationMessage(order, constant.PositionLong)
+	}
+	
 	// 发送通知
-	if err := s.notificationService.SendCloseOrderNotification(order); err != nil {
-		s.notificationRepo.UpdateStatus(notificationLog.ID, model.NotificationStatusFailed, err.Error())
+	notificationMsg := &notification.NotificationMessage{
+		Type:    string(model.NotificationTypeOrderClosed),
+		Message: message,
+	}
+	
+	if err := s.notificationService.SendMessage(*notificationMsg); err != nil {
+		s.notificationRepo.UpdateStatusBatch(notificationIds, model.NotificationStatusFailed, err.Error())
 		s.logger.WithField("error", err).Error("Failed to send close order notification")
 	} else {
-		s.notificationRepo.UpdateStatus(notificationLog.ID, model.NotificationStatusSuccess, "")
+		s.notificationRepo.UpdateStatusBatch(notificationIds, model.NotificationStatusSuccess, "")
 	}
 }
 
@@ -418,13 +468,15 @@ func (s *OrderService) GetStatistics(traderUserID string) (map[string]interface{
 // NotificationService 通知服务
 type NotificationService struct {
 	notificationRepo repository.NotificationRepository
+	notificationClient notification.Client
 	logger           *logger.Logger
 }
 
 // NewNotificationService 创建通知服务
-func NewNotificationService(notificationRepo repository.NotificationRepository, logger *logger.Logger) *NotificationService {
+func NewNotificationService(notificationRepo repository.NotificationRepository, notificationClient notification.Client, logger *logger.Logger) *NotificationService {
 	return &NotificationService{
 		notificationRepo: notificationRepo,
+		notificationClient: notificationClient,
 		logger:           logger,
 	}
 }
@@ -433,4 +485,17 @@ func NewNotificationService(notificationRepo repository.NotificationRepository, 
 func (s *NotificationService) GetNotificationLogs(traderUserID string, page, pageSize int) ([]model.NotificationLog, int64, error) {
 	offset := (page - 1) * pageSize
 	return s.notificationRepo.GetLogs(traderUserID, offset, pageSize)
+}
+
+// TestNotification 发送测试消息
+func (s *NotificationService) TestNotification(message string) error {
+	notificationMsg := &notification.NotificationMessage{
+		Type: string(model.NotificationTypeNewOrder),
+		Message: message,
+	}
+	if err := s.notificationClient.SendMessage(*notificationMsg); err != nil {
+		s.logger.WithField("error", err).Error("Failed to send test notification")
+		return err
+	}
+	return nil
 }

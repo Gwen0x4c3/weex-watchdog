@@ -349,6 +349,20 @@ func (h *NotificationHandler) GetNotificationLogs(c *gin.Context) {
 
 // TestNotification 测试通知
 func (h *NotificationHandler) TestNotification(c *gin.Context) {
+	// 获取message
+	message := c.GetString("message")
+	if message == "" {
+		message = "This is a test notification"
+	}
+	if err := h.notificationService.TestNotification(message); err != nil {
+		h.logger.WithField("error", err).Error("Failed to send test notification")
+		c.JSON(http.StatusInternalServerError, Response{
+			Success: false,
+			Message: "Failed to send test notification: " + err.Error(),
+		})
+		return
+	}
+	
 	// 这里可以实现测试通知功能
 	c.JSON(http.StatusOK, Response{
 		Success: true,

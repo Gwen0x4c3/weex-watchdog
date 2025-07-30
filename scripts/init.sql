@@ -15,6 +15,7 @@ CREATE TABLE trader_monitors (
 CREATE TABLE order_history (
     id BIGINT PRIMARY KEY AUTO_INCREMENT,
     trader_user_id VARCHAR(50) NOT NULL COMMENT '交易员ID',
+    trader_name VARCHAR(100) COMMENT '交易员昵称',
     order_id VARCHAR(50) NOT NULL COMMENT '订单ID',
     order_data JSON COMMENT '完整订单JSON数据',
     contract_symbol VARCHAR(50) COMMENT '合约标识，如BTCUSDT',

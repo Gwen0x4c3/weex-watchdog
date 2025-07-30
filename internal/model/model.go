@@ -61,6 +61,7 @@ func (j *JSON) Scan(value interface{}) error {
 type OrderHistory struct {
 	ID             uint        `json:"id" gorm:"primaryKey"`
 	TraderUserID   string      `json:"trader_user_id" gorm:"type:varchar(50);not null;index"`
+	TraderName     string      `json:"trader_name" gorm:"type:varchar(100)"`
 	OrderID        string      `json:"order_id" gorm:"type:varchar(50);not null"`
 	OrderData      JSON        `json:"order_data" gorm:"type:json"`
 	ContractSymbol string      `json:"contract_symbol" gorm:"type:varchar(50);not null"`

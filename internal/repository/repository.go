@@ -28,6 +28,7 @@ type OrderRepository interface {
 	UpdateOrderStatus(id uint, status model.OrderStatus, closedAt *time.Time) error
 	GetOrderHistory(traderUserID string, offset, limit int) ([]model.OrderHistory, int64, error)
 	GetStatistics(traderUserID string) (map[string]interface{}, error)
+	DeleteByTraderID(traderID uint) error
 }
 
 // NotificationRepository 通知仓库接口
@@ -189,6 +190,11 @@ func (r *orderRepository) GetStatistics(traderUserID string) (map[string]interfa
 	stats["closed_orders"] = closedOrders
 
 	return stats, nil
+}
+
+// DeleteByTraderID 删除指定交易员的所有订单
+func (r *orderRepository) DeleteByTraderID(traderID uint) error {
+	return r.db.Where("trader_user_id = ?", traderID).Delete(&model.OrderHistory{}).Error
 }
 
 // notificationRepository 通知仓库实现

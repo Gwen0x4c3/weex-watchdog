@@ -9,7 +9,7 @@ import (
 
 // Client 通知服务接口
 type Client interface {
-	BuildNotificationMessage(order *model.OrderHistory, position string) string
+	BuildNotificationMessage(orders []*model.OrderHistory, isOpen bool) string
 	SendMessage(notification NotificationMessage) error
 }
 

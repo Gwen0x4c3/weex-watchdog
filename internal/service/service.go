@@ -10,7 +10,6 @@ import (
 
 	"weex-watchdog/internal/model"
 	"weex-watchdog/internal/repository"
-	"weex-watchdog/pkg/constant"
 	"weex-watchdog/pkg/logger"
 	"weex-watchdog/pkg/notification"
 	"weex-watchdog/pkg/weex"
@@ -19,14 +18,16 @@ import (
 // TraderService 交易员服务
 type TraderService struct {
 	traderRepo     repository.TraderRepository
+	orderService   *OrderService
 	logger         *logger.Logger
 	monitorService *MonitorService // 添加对监控服务的引用
 }
 
 // NewTraderService 创建交易员服务
-func NewTraderService(traderRepo repository.TraderRepository, logger *logger.Logger) *TraderService {
+func NewTraderService(traderRepo repository.TraderRepository, orderService *OrderService, logger *logger.Logger) *TraderService {
 	return &TraderService{
 		traderRepo: traderRepo,
+		orderService: orderService,
 		logger:     logger,
 	}
 }
@@ -75,7 +76,17 @@ func (s *TraderService) UpdateTrader(trader *model.TraderMonitor) error {
 
 // DeleteTrader 删除交易员
 func (s *TraderService) DeleteTrader(id uint) error {
-	return s.traderRepo.Delete(id)
+	// 删除交易员
+	if err := s.traderRepo.Delete(id); err != nil {
+		return fmt.Errorf("failed to delete trader: %w", err)
+	}
+	// 删除交易员的订单
+	if err := s.orderService.DeleteByTraderId(id); err != nil {
+		return fmt.Errorf("failed to delete trader's orders: %w", err)
+	}
+	// 清理监控缓存
+	s.monitorService.ClearTraderCache(strconv.FormatUint(uint64(id), 10))
+	return nil
 }
 
 // ToggleTraderMonitor 启用/禁用交易员监控
@@ -177,7 +188,7 @@ func (s *MonitorService) monitorSingleTrader(trader model.TraderMonitor, _ time.
 	s.logger.WithFields(map[string]interface{}{
 		"trader_id": trader.TraderUserID,
 		"interval":  trader.MonitorInterval,
-	}).Info("Monitoring trader")
+	}).Debug("Monitoring trader")
 
 	// 获取当前订单
 	orders, err := s.fetchTraderOrders(trader.TraderUserID)
@@ -239,6 +250,7 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 
 			orderHistory := &model.OrderHistory{
 				TraderUserID:   traderUserID,
+				TraderName: 	order.TraderName,
 				OrderID:        order.OpenOrderID,
 				OrderData:      s.convertToJSON(order),
 				ContractSymbol: symbolName,
@@ -329,7 +341,7 @@ func (s *MonitorService) sendNewOrderNotification(newOrders []*model.OrderHistor
 	if len(newOrders) == 0 {
 		return
 	}
-	message := ""
+	
 	notificationIds := make([]uint, 0)
 	for _, order := range newOrders {
 		// 记录通知日志
@@ -347,14 +359,11 @@ func (s *MonitorService) sendNewOrderNotification(newOrders []*model.OrderHistor
 		}
 
 		notificationIds = append(notificationIds, notificationLog.ID)
-		if message != "" {
-			message += "\n\n"
-		} else {
-			message = `<div style="border: 2px solid #007bff; border-radius: 8px; padding: 8px; background-color: #f8f9fa; margin: 5px 0;">
-<h3 style="color: #007bff; margin: 0 0 6px 0;padding:0">🆕 新开仓提醒</h3><br/>`
-		}
-		message += s.notificationService.BuildNotificationMessage(order, constant.PositionLong)
 	}
+
+	// 构建通知消息
+	message := s.notificationService.BuildNotificationMessage(newOrders, true)
+	
 	// 发送通知
 	notificationMsg := &notification.NotificationMessage{
 		Type: string(model.NotificationTypeNewOrder),
@@ -374,7 +383,7 @@ func (s *MonitorService) sendCloseOrderNotification(closedOrders []*model.OrderH
 	if len(closedOrders) == 0 {
 		return
 	}
-	message := ""
+	
 	notificationIds := make([]uint, 0)
 	
 	for _, order := range closedOrders {
@@ -393,14 +402,10 @@ func (s *MonitorService) sendCloseOrderNotification(closedOrders []*model.OrderH
 		}
 
 		notificationIds = append(notificationIds, notificationLog.ID)
-		if message != "" {
-			message += "\n\n"
-		} else {
-			message = `<div style="border: 2px solid #6c757d; border-radius: 8px; padding: 8px; background-color: #f8f9fa; margin: 5px 0;">
-<h3 style="color: #6c757d; margin: 0 0 6px 0;">❌ 平仓提醒</h3><br/>`
-		}
-		message += s.notificationService.BuildNotificationMessage(order, constant.PositionLong)
 	}
+	
+	// 构建通知消息
+	message := s.notificationService.BuildNotificationMessage(closedOrders, false)
 	
 	// 发送通知
 	notificationMsg := &notification.NotificationMessage{
@@ -463,6 +468,12 @@ func (s *OrderService) GetOrderHistory(traderUserID string, page, pageSize int) 
 // GetStatistics 获取统计数据
 func (s *OrderService) GetStatistics(traderUserID string) (map[string]interface{}, error) {
 	return s.orderRepo.GetStatistics(traderUserID)
+}
+
+// DeleteByTraderId 删除指定交易员的所有订单
+func (s *OrderService) DeleteByTraderId(traderID uint) error {
+	// 删除指定交易员的所有订单
+	return s.orderRepo.DeleteByTraderID(traderID)
 }
 
 // NotificationService 通知服务

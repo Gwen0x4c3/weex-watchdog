@@ -91,8 +91,8 @@ func main() {
 	}
 
 	// 初始化业务服务
-	traderService := service.NewTraderService(traderRepo, appLogger)
 	orderService := service.NewOrderService(orderRepo, appLogger)
+	traderService := service.NewTraderService(traderRepo, orderService, appLogger)
 	notificationService := service.NewNotificationService(notificationRepo, notificationClient, appLogger)
 	monitorService := service.NewMonitorService(
 		traderRepo,

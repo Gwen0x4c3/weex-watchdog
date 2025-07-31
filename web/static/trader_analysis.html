@@ -162,11 +162,23 @@
                     </div>
                     <div class="metric-card">
                         <div class="metric-value">{{ analysisResult.avg_holding_hours.toFixed(1) }}h</div>
-                        <div class="metric-label">平均持仓时间</div>
+                        <div class="metric-label">平均持仓(h)</div>
                     </div>
                     <div class="metric-card">
-                        <div class="metric-value">{{ analysisResult.holding_time_p99.toFixed(1) }}h</div>
-                        <div class="metric-label">持仓时间P99</div>
+                        <div class="metric-value">{{ analysisResult.holding_time_p25.toFixed(1) }}h</div>
+                        <div class="metric-label">持仓P25(h)</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ analysisResult.holding_time_p50.toFixed(1) }}h</div>
+                        <div class="metric-label">持仓中位数(h)</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ analysisResult.holding_time_p75.toFixed(1) }}h</div>
+                        <div class="metric-label">持仓P75(h)</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ analysisResult.max_holding_hours.toFixed(1) }}h</div>
+                        <div class="metric-label">最长持仓(h)</div>
                     </div>
                 </div>
 
@@ -198,7 +210,19 @@
                             </div>
                             <div class="metric-label">收益率</div>
                         </div>
+                        <div class="metric-card">
+                            <div class="metric-value loss">
+                                {{ analysisResult.follow_profit.max_drawdown.toFixed(2) }}%
+                            </div>
+                            <div class="metric-label">最大回撤</div>
+                        </div>
                     </div>
+                </div>
+
+                <!-- 资金曲线 -->
+                <div v-if="analysisResult.follow_profit && analysisResult.follow_profit.capital_curve" class="chart-card" style="grid-column: 1 / -1; margin-bottom: 2rem;">
+                    <div class="chart-title">跟投资金曲线</div>
+                    <div id="capitalCurveChart" style="width: 100%; height: 400px;"></div>
                 </div>
 
                 <!-- 图表展示 -->
@@ -302,6 +326,7 @@
                 },
 
                 renderCharts() {
+                    this.renderCapitalCurveChart();
                     this.renderCoinFrequencyChart();
                     this.renderCoinWinRateChart();
                     this.renderCoinPnlChart();
@@ -488,6 +513,76 @@
                     };
                     chart.setOption(option);
                     this.charts.hourly = chart;
+                },
+
+                renderCapitalCurveChart() {
+                    const chart = echarts.init(document.getElementById('capitalCurveChart'));
+                    const data = this.analysisResult.follow_profit.capital_curve;
+                    const initialCapital = this.analysisResult.follow_profit.initial_capital;
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: {
+                                type: 'cross',
+                                label: {
+                                    backgroundColor: '#6a7985'
+                                }
+                            },
+                            formatter: function (params) {
+                                const point = params[0];
+                                const time = new Date(point.axisValue).toLocaleString();
+                                const capital = parseFloat(point.value[1]).toFixed(2);
+                                const profitRate = ((capital - initialCapital) / initialCapital * 100).toFixed(2);
+                                return `${time}<br/>资金: <strong>${capital}U</strong><br/>收益率: <strong>${profitRate}%</strong>`;
+                            }
+                        },
+                        xAxis: {
+                            type: 'time',
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '总资金 (U)',
+                            scale: true,
+                            axisLabel: { formatter: '{value} U' }
+                        },
+                        dataZoom: [{
+                            type: 'inside',
+                            start: 0,
+                            end: 100
+                        }, {
+                            type: 'slider', // 修复：明确指定类型为 slider
+                            start: 0,
+                            end: 100
+                        }],
+                        series: [{
+                            name: '资金曲线',
+                            type: 'line',
+                            smooth: true,
+                            showSymbol: false,
+                            data: data.map(p => [p.time, p.capital]), // 修复：传递原始数字而非字符串
+                            itemStyle: { color: '#409EFF' },
+                            markLine: {
+                                silent: true,
+                                data: [{
+                                    yAxis: initialCapital,
+                                    label: { formatter: '初始本金' }
+                                }],
+                                lineStyle: { type: 'dashed', color: '#999' }
+                            },
+                            areaStyle: {
+                                color: new echarts.graphic.LinearGradient(0, 0, 0, 1, [{
+                                    offset: 0,
+                                    color: 'rgba(64, 158, 255, 0.3)'
+                                }, {
+                                    offset: 1,
+                                    color: 'rgba(64, 158, 255, 0)'
+                                }])
+                            }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.capitalCurve = chart;
                 }
             },
 

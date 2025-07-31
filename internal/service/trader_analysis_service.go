@@ -57,8 +57,9 @@ type TraderAnalysisResult struct {
 	// 风险指标
 	AvgHoldingHours float64 `json:"avg_holding_hours"`
 	MaxHoldingHours float64 `json:"max_holding_hours"`
-	HoldingTimeP99  float64 `json:"holding_time_p99"`
-	Volatility      float64 `json:"volatility"`
+	HoldingTimeP25  float64 `json:"holding_time_p25"`
+	HoldingTimeP50  float64 `json:"holding_time_p50"` // 中位数
+	HoldingTimeP75  float64 `json:"holding_time_p75"`
 
 	// 币种分析
 	CoinFrequency map[string]int     `json:"coin_frequency"`
@@ -94,6 +95,15 @@ type FollowProfitResult struct {
 	TotalProfit    float64 `json:"total_profit"`
 	ProfitRate     float64 `json:"profit_rate"`
 	OrdersFollowed int     `json:"orders_followed"`
+	MaxDrawdown    float64 `json:"max_drawdown"` // 最大回撤率
+
+	CapitalCurve []CapitalDataPoint `json:"capital_curve"` // 资金曲线
+}
+
+// CapitalDataPoint 资金曲线数据点
+type CapitalDataPoint struct {
+	Time    time.Time `json:"time"`
+	Capital float64   `json:"capital"`
 }
 
 // AnalyzeTrader 分析交易员历史数据
@@ -283,8 +293,9 @@ func (s *TraderAnalysisService) analyzeOrders(traderID string, orders []weex.Ope
 	if len(holdingTimes) > 0 {
 		result.AvgHoldingHours = s.average(holdingTimes)
 		result.MaxHoldingHours = s.max(holdingTimes)
-		result.HoldingTimeP99 = s.percentile(holdingTimes, 99)
-		result.Volatility = s.standardDeviation(holdingTimes)
+		result.HoldingTimeP25 = s.percentile(holdingTimes, 25)
+		result.HoldingTimeP50 = s.percentile(holdingTimes, 50)
+		result.HoldingTimeP75 = s.percentile(holdingTimes, 75)
 	}
 
 	// 计算各币种胜率和盈亏
@@ -302,33 +313,103 @@ func (s *TraderAnalysisService) analyzeOrders(traderID string, orders []weex.Ope
 	return result
 }
 
-// calculateFollowProfit 计算跟投收益
+// calculateFollowProfit 计算跟投收益（模拟真实跟单，带资金曲线和最大回撤）
 func (s *TraderAnalysisService) calculateFollowProfit(traderID, timeRange string, initialCapital, investPerOrder float64) *FollowProfitResult {
-	orders, _ := weex.GetHistoryOrderList(traderID)
+	orders, err := weex.GetHistoryOrderList(traderID)
+	if err != nil {
+		s.logger.Error("Failed to get history orders for follow profit calculation", "error", err)
+		return nil
+	}
+
 	filteredOrders := s.filterOrdersByTimeRange(orders, timeRange)
 
 	result := &FollowProfitResult{
 		InitialCapital: initialCapital,
 		InvestPerOrder: investPerOrder,
-		FinalCapital:   initialCapital,
+		CapitalCurve:   make([]CapitalDataPoint, 0),
 	}
 
-	ordersFollowed := 0
+	type eventType int
+	// 定义事件类型
+	const (
+		eventOpen eventType = iota
+		eventClose
+	)
+
+	// 定义事件结构
+	type followEvent struct {
+		time      time.Time
+		eventType eventType
+		profit    float64
+	}
+
+	// 创建事件流
+	var events []followEvent
 	for _, order := range filteredOrders {
-		// 计算收益率
-		profitRate, err := strconv.ParseFloat(order.ProfitRate, 64)
-		if err != nil {
-			continue
+		openTimestamp, _ := strconv.ParseInt(order.OpenTime, 10, 64)
+		openTime := time.Unix(openTimestamp/1000, 0)
+		events = append(events, followEvent{time: openTime, eventType: eventOpen})
+
+		if order.CloseTime != "" {
+			closeTimestamp, _ := strconv.ParseInt(order.CloseTime, 10, 64)
+			closeTime := time.Unix(closeTimestamp/1000, 0)
+			profitRate, _ := strconv.ParseFloat(order.ProfitRate, 64)
+			orderProfit := investPerOrder * (profitRate / 100)
+			events = append(events, followEvent{time: closeTime, eventType: eventClose, profit: orderProfit})
+		}
+	}
+
+	// 按时间排序事件
+	sort.Slice(events, func(i, j int) bool {
+		return events[i].time.Before(events[j].time)
+	})
+
+	currentCapital := initialCapital
+	peakCapital := initialCapital
+	maxDrawdown := 0.0
+	ordersFollowed := 0
+	activePositions := 0
+
+	// 添加初始点
+	if len(events) > 0 {
+		result.CapitalCurve = append(result.CapitalCurve, CapitalDataPoint{Time: events[0].time.Add(-time.Second), Capital: initialCapital})
+	} else {
+		result.CapitalCurve = append(result.CapitalCurve, CapitalDataPoint{Time: time.Now(), Capital: initialCapital})
+	}
+
+	// 处理事件流
+	for _, e := range events {
+		switch e.eventType {
+		case eventOpen:
+			if currentCapital >= investPerOrder {
+				currentCapital -= investPerOrder
+				ordersFollowed++
+				activePositions++
+			}
+		case eventClose:
+			if activePositions > 0 {
+				currentCapital += investPerOrder + e.profit
+				activePositions--
+			}
 		}
 
-		// 按照跟投金额计算实际收益
-		orderProfit := investPerOrder * (profitRate / 100)
-		result.FinalCapital += orderProfit
-		ordersFollowed++
+		// 更新资金峰值和最大回撤
+		if currentCapital > peakCapital {
+			peakCapital = currentCapital
+		}
+		drawdown := (peakCapital - currentCapital) / peakCapital
+		if drawdown > maxDrawdown {
+			maxDrawdown = drawdown
+		}
+
+		// 记录资金曲线数据点
+		result.CapitalCurve = append(result.CapitalCurve, CapitalDataPoint{Time: e.time, Capital: currentCapital})
 	}
 
+	result.FinalCapital = currentCapital
 	result.OrdersFollowed = ordersFollowed
 	result.TotalProfit = result.FinalCapital - result.InitialCapital
+	result.MaxDrawdown = maxDrawdown * 100 // 转换为百分比
 	if result.InitialCapital > 0 {
 		result.ProfitRate = (result.TotalProfit / result.InitialCapital) * 100
 	}
@@ -381,19 +462,19 @@ func (s *TraderAnalysisService) percentile(values []float64, p int) float64 {
 	return sorted[lower]*(1-weight) + sorted[upper]*weight
 }
 
-func (s *TraderAnalysisService) standardDeviation(values []float64) float64 {
-	if len(values) <= 1 {
-		return 0
-	}
+// func (s *TraderAnalysisService) standardDeviation(values []float64) float64 {
+// 	if len(values) <= 1 {
+// 		return 0
+// 	}
 
-	mean := s.average(values)
-	variance := 0.0
-	for _, v := range values {
-		variance += math.Pow(v-mean, 2)
-	}
-	variance /= float64(len(values) - 1)
-	return math.Sqrt(variance)
-}
+// 	mean := s.average(values)
+// 	variance := 0.0
+// 	for _, v := range values {
+// 		variance += math.Pow(v-mean, 2)
+// 	}
+// 	variance /= float64(len(values) - 1)
+// 	return math.Sqrt(variance)
+// }
 
 func (s *TraderAnalysisService) calculateHoldingTimeDistribution(holdingTimes []float64) []HoldingTimeBucket {
 	if len(holdingTimes) == 0 {

@@ -148,7 +148,7 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 		if err != nil || existing == nil {
 			// 新订单
 			// 解析创建时间字符串为时间戳
-			createdTime, err := strconv.ParseInt(order.CreatedTime, 10, 64)
+			openTime, err := strconv.ParseInt(order.OpenTime, 10, 64)
 			if err != nil {
 				s.logger.WithFields(map[string]interface{}{
 					"trader_id":    traderUserID,
@@ -156,7 +156,7 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 					"created_time": order.CreatedTime,
 					"error":        err,
 				}).Error("Failed to parse created time")
-				createdTime = time.Now().UnixMilli() // 使用当前时间作为fallback
+				openTime = time.Now().UnixMilli() // 使用当前时间作为fallback
 			}
 
 			// 获取交易对名称
@@ -174,7 +174,7 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 				OpenSize:       order.OpenSize,
 				OpenPrice:      order.AverageOpenPrice,
 				OpenLeverage:   order.OpenLeverage + "x",
-				FirstSeenAt:    time.UnixMilli(createdTime),
+				FirstSeenAt:    time.UnixMilli(openTime),
 				LastSeenAt:     time.Now(),
 			}
 

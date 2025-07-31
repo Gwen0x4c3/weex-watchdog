@@ -26,6 +26,12 @@ func (s *OrderService) GetOrderHistory(traderUserID string, page, pageSize int) 
 	return s.orderRepo.GetOrderHistory(traderUserID, offset, pageSize)
 }
 
+// GetOrderHistoryWithFilters 获取带筛选条件的订单历史
+func (s *OrderService) GetOrderHistoryWithFilters(traderUserID string, filters map[string]interface{}, page, pageSize int) ([]model.OrderHistory, int64, error) {
+	offset := (page - 1) * pageSize
+	return s.orderRepo.GetOrderHistoryWithFilters(traderUserID, filters, offset, pageSize)
+}
+
 // GetStatistics 获取统计数据
 func (s *OrderService) GetStatistics(traderUserID string) (map[string]interface{}, error) {
 	return s.orderRepo.GetStatistics(traderUserID)

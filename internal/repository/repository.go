@@ -25,6 +25,7 @@ type OrderRepository interface {
 	GetActiveOrdersByTrader(traderUserID string) ([]model.OrderHistory, error)
 	UpdateOrderStatus(id uint, status model.OrderStatus, closedAt *time.Time) error
 	GetOrderHistory(traderUserID string, offset, limit int) ([]model.OrderHistory, int64, error)
+	GetOrderHistoryWithFilters(traderUserID string, filters map[string]interface{}, offset, limit int) ([]model.OrderHistory, int64, error)
 	GetStatistics(traderUserID string) (map[string]interface{}, error)
 	DeleteByTraderID(traderID uint) error
 }

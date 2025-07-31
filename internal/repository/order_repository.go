@@ -64,6 +64,62 @@ func (r *orderRepository) GetOrderHistory(traderUserID string, offset, limit int
 	return orders, count, err
 }
 
+func (r *orderRepository) GetOrderHistoryWithFilters(traderUserID string, filters map[string]interface{}, offset, limit int) ([]model.OrderHistory, int64, error) {
+	var orders []model.OrderHistory
+	var count int64
+
+	query := r.db.Model(&model.OrderHistory{})
+	
+	// 基础筛选：交易员ID
+	if traderUserID != "" {
+		query = query.Where("trader_user_id = ?", traderUserID)
+	}
+
+	// 交易员名称模糊搜索
+	if traderName, ok := filters["trader_name"].(string); ok && traderName != "" {
+		query = query.Where("trader_name LIKE ?", "%"+traderName+"%")
+	}
+
+	// 币种模糊搜索
+	if contractSymbol, ok := filters["contract_symbol"].(string); ok && contractSymbol != "" {
+		query = query.Where("contract_symbol LIKE ?", "%"+contractSymbol+"%")
+	}
+
+	// 状态筛选
+	if status, ok := filters["status"].(string); ok && status != "" {
+		query = query.Where("status = ?", status)
+	}
+
+	// 时间筛选
+	if dateFilter, ok := filters["date_filter"].(string); ok && dateFilter != "" {
+		now := time.Now()
+		var startTime time.Time
+		
+		switch dateFilter {
+		case "today":
+			startTime = time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, now.Location())
+		case "7days":
+			startTime = now.AddDate(0, 0, -7)
+		case "10days":
+			startTime = now.AddDate(0, 0, -10)
+		case "30days":
+			startTime = now.AddDate(0, 0, -30)
+		}
+		
+		if !startTime.IsZero() {
+			query = query.Where("first_seen_at >= ?", startTime)
+		}
+	}
+
+	err := query.Count(&count).Error
+	if err != nil {
+		return nil, 0, err
+	}
+
+	err = query.Order("first_seen_at DESC").Offset(offset).Limit(limit).Find(&orders).Error
+	return orders, count, err
+}
+
 func (r *orderRepository) GetStatistics(traderUserID string) (map[string]interface{}, error) {
 	stats := make(map[string]interface{})
 

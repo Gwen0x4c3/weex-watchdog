@@ -134,21 +134,14 @@ func (s *WxPusherNotificationClient) BuildNotificationMessage(orders []*model.Or
 
 		// 添加订单详情
 		for _, order := range groupOrders {
-			var timeStr string
-			if isOpen {
-				timeStr = order.FirstSeenAt.Format("15:04:05")
-			} else if order.ClosedAt != nil {
-				timeStr = order.ClosedAt.Format("15:04:05")
-			} else {
-				timeStr = "未知"
-			}
+			openTime := order.FirstSeenAt.Format("15:04:05")
 
 			orderDetailHtml := fmt.Sprintf(`<div style="display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px;">
 <span style="background-color: #e9ecef; padding: 2px 6px; border-radius: 8px; color: rgb(20,20,20); font-size: 11px;">杠杆: %s</span>
 <span style="background-color: #e9ecef; padding: 2px 6px; border-radius: 8px; color: rgb(20,20,20); font-size: 11px;">价格: %s</span>
 <span style="background-color: #e9ecef; padding: 2px 6px; border-radius: 8px; color: rgb(20,20,20); font-size: 11px;">开仓: %s</span>
 </div>
-`, order.OpenLeverage, order.OpenPrice, timeStr)
+`, order.OpenLeverage, order.OpenPrice, openTime)
 
 			// 检查长度
 			if len(result)+len(orderDetailHtml) >= maxLength {
@@ -177,7 +170,7 @@ func (s *WxPusherNotificationClient) BuildNotificationMessage(orders []*model.Or
 // getActionIcon 获取操作图标
 func getActionIcon(isOpen bool) string {
 	if isOpen {
-		return "🆕"
+		return "✅"
 	}
 	return "❌"
 }

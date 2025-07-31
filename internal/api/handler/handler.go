@@ -249,6 +249,10 @@ func NewOrderHandler(orderService *service.OrderService, logger *logger.Logger) 
 // GetOrderHistory 获取订单历史
 func (h *OrderHandler) GetOrderHistory(c *gin.Context) {
 	traderUserID := c.Query("trader_user_id")
+	traderName := c.Query("trader_name")
+	contractSymbol := c.Query("contract_symbol")
+	status := c.Query("status")
+	dateFilter := c.Query("date_filter") // today, 7days, 10days, 30days
 	page, _ := strconv.Atoi(c.DefaultQuery("page", "1"))
 	size, _ := strconv.Atoi(c.DefaultQuery("size", "20"))
 
@@ -259,7 +263,15 @@ func (h *OrderHandler) GetOrderHistory(c *gin.Context) {
 		size = 20
 	}
 
-	orders, total, err := h.orderService.GetOrderHistory(traderUserID, page, size)
+	// 构建筛选参数
+	filters := map[string]interface{}{
+		"trader_name":     traderName,
+		"contract_symbol": contractSymbol,
+		"status":          status,
+		"date_filter":     dateFilter,
+	}
+
+	orders, total, err := h.orderService.GetOrderHistoryWithFilters(traderUserID, filters, page, size)
 	if err != nil {
 		h.logger.WithField("error", err).Error("Failed to get order history")
 		c.JSON(http.StatusInternalServerError, Response{

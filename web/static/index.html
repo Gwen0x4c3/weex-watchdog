@@ -17,6 +17,18 @@
         .stat-card { text-align: center; padding: 1.5rem; border: 1px solid #ddd; border-radius: 8px; }
         .stat-value { font-size: 2rem; font-weight: bold; color: #409EFF; }
         .stat-label { color: #666; margin-top: 0.5rem; }
+        .price-panel { position: fixed; right: 20px; top: 20px; width: 320px; height: 500px; background: white; border: 1px solid #ddd; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); z-index: 1000; }
+        .price-header { padding: 10px 15px; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; align-items: center; }
+        .price-content { height: 420px; overflow-y: auto; }
+        .price-item { display: flex; justify-content: space-between; padding: 8px 15px; border-bottom: 1px solid #f5f5f5; }
+        .price-item:hover { background: #f9f9f9; }
+        .price-symbol { font-weight: bold; }
+        .price-value { font-family: monospace; }
+        .price-up { color: #67c23a; }
+        .price-down { color: #f56c6c; }
+        .price-panel-toggle { position: fixed; right: 20px; top: 540px; z-index: 1001; }
+        .order-filters { background: #f8f9fa; padding: 15px; border-radius: 4px; margin-bottom: 20px; }
+        .order-filters .el-form-item { margin-bottom: 10px; }
     </style>
 </head>
 <body>
@@ -35,7 +47,7 @@
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">{{ stats.active_orders || 0 }}</div>
-                    <div class="stat-label">活跃订单</div>
+                    <div class="stat-label">持仓订单</div>
                 </div>
                 <div class="stat-card">
                     <div class="stat-value">{{ stats.total_orders || 0 }}</div>
@@ -59,8 +71,8 @@
                 </template>
 
                 <el-table :data="traders" style="width: 100%">
-                    <el-table-column prop="trader_user_id" label="交易员ID" width="150"></el-table-column>
-                    <el-table-column prop="trader_name" label="交易员名称" width="120"></el-table-column>
+                    <el-table-column prop="trader_user_id" label="交易员ID"></el-table-column>
+                    <el-table-column prop="trader_name" label="交易员名称"></el-table-column>
                     <el-table-column prop="monitor_interval" label="监控间隔(秒)" width="120"></el-table-column>
                     <el-table-column label="当前带单数" width="120">
                         <template #default="scope">
@@ -76,12 +88,12 @@
                             </el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column prop="created_at" label="创建时间" width="180">
+                    <el-table-column prop="created_at" label="创建时间">
                         <template #default="scope">
                             {{ formatDate(scope.row.created_at) }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="操作" width="200">
+                    <el-table-column label="操作">
                         <template #default="scope">
                             <el-button size="small" @click="editTrader(scope.row)">编辑</el-button>
                             <el-button 
@@ -113,20 +125,53 @@
                     <span>订单历史</span>
                 </template>
 
+                <!-- 筛选表单 -->
+                <el-form :inline="true" :model="orderFilters" class="order-filters" style="margin-bottom: 20px;">
+                    <el-form-item label="交易员名称">
+                        <el-input v-model="orderFilters.trader_name" placeholder="输入交易员名称" @blur="loadOrdersWithFilters" clearable
+                            style="width: 150px;">
+                        </el-input>
+                    </el-form-item>
+                    <el-form-item label="币种">
+                        <el-input v-model="orderFilters.contract_symbol" placeholder="输入币种，如BTC" @blur="loadOrdersWithFilters" clearable
+                            style="width: 150px;">
+                        </el-input>
+                    </el-form-item>
+                    <el-form-item label="状态">
+                        <el-select v-model="orderFilters.status" placeholder="选择状态" @change="loadOrdersWithFilters" clearable
+                            style="width: 120px;">
+                            <el-option label="持仓中" value="ACTIVE"></el-option>
+                            <el-option label="已平仓" value="CLOSED"></el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="开仓时间">
+                        <el-select v-model="orderFilters.date_filter" placeholder="选择时间范围" @change="loadOrdersWithFilters" clearable
+                            style="width: 120px;">
+                            <el-option label="今日" value="today"></el-option>
+                            <el-option label="最近7天" value="7days"></el-option>
+                            <el-option label="最近10天" value="10days"></el-option>
+                            <el-option label="最近1个月" value="30days"></el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" @click="resetFilters">重置</el-button>
+                    </el-form-item>
+                </el-form>
+
                 <el-table :data="orders" style="width: 100%">
-                    <el-table-column prop="trader_name" label="交易员" width="120"></el-table-column>
-                    <el-table-column prop="contract_symbol" label="交易对" width="120"></el-table-column>
+                    <el-table-column prop="trader_name" label="交易员"></el-table-column>
+                    <el-table-column prop="contract_symbol" label="交易对"></el-table-column>
                     <el-table-column prop="position_side" label="方向" width="80"></el-table-column>
-                    <el-table-column prop="open_price" label="价格" width="120"></el-table-column>
-                    <el-table-column prop="open_leverage" label="杠杆" width="80"></el-table-column>
+                    <el-table-column prop="open_price" label="价格"></el-table-column>
+                    <el-table-column prop="open_leverage" label="杠杆"></el-table-column>
                     <el-table-column prop="status" label="状态" width="100">
                         <template #default="scope">
                             <el-tag :type="scope.row.status === 'ACTIVE' ? 'success' : 'info'">
-                                {{ scope.row.status === 'ACTIVE' ? '活跃' : '已平仓' }}
+                                {{ scope.row.status === 'ACTIVE' ? '持仓中' : '已平仓' }}
                             </el-tag>
                         </template>
                     </el-table-column>
-                    <el-table-column prop="first_seen_at" label="开仓时间" width="180">
+                    <el-table-column prop="first_seen_at" label="开仓时间">
                         <template #default="scope">
                             {{ formatDate(scope.row.first_seen_at) }}
                         </template>
@@ -145,6 +190,72 @@
                 </el-pagination>
             </el-card>
         </div>
+
+        <!-- 价格面板 -->
+        <div v-show="showPricePanel" class="price-panel">
+            <div class="price-header">
+                <span>市场价格</span>
+                <el-button size="small" @click="showPricePanel = false" type="text">×</el-button>
+            </div>
+            <el-tabs v-model="activePriceTab" style="padding: 0 15px;">
+                <el-tab-pane label="自选" name="favorite">
+                    <div style="margin-bottom: 10px;">
+                        <el-button size="small" type="primary" @click="showAddSymbolDialog = true">手动添加</el-button>
+                    </div>
+                    <div class="price-content" style="height: 330px;">
+                        <div v-for="ticker in favoriteTickers" :key="ticker.contractId" class="price-item">
+                            <div>
+                                <div class="price-symbol">{{ getSymbolName(ticker.contractId) }}</div>
+                                <div style="font-size: 12px; color: #999;">{{ ticker.contractId }}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="price-value" :class="getPriceClass(ticker.priceChangePercent)">
+                                    {{ formatPrice(ticker.lastPrice) }}
+                                </div>
+                                <div style="font-size: 12px;" :class="getPriceClass(ticker.priceChangePercent)">
+                                    {{ ticker.priceChangePercent > 0 ? '+' : '' }}{{ (ticker.priceChangePercent *
+                                    100).toFixed(2) }}%
+                                </div>
+                                <el-button size="small" type="text" @click="removeFavorite(ticker.contractId)">移除</el-button>
+                            </div>
+                        </div>
+                        <div v-if="favoriteTickers.length === 0" style="text-align: center; padding: 2rem; color: #999;">
+                            暂无自选币种
+                        </div>
+                    </div>
+                </el-tab-pane>
+                <el-tab-pane label="全部" name="all">
+                    <div class="price-content" style="height: 300px;">
+                        <div v-for="ticker in allTickers" :key="ticker.contractId" class="price-item">
+                            <div>
+                                <div class="price-symbol">{{ getSymbolName(ticker.contractId) }}</div>
+                                <div style="font-size: 12px; color: #999;">{{ ticker.contractId }}</div>
+                            </div>
+                            <div style="text-align: right;">
+                                <div class="price-value" :class="getPriceClass(ticker.priceChangePercent)">
+                                    {{ formatPrice(ticker.lastPrice) }}
+                                </div>
+                                <div style="font-size: 12px;" :class="getPriceClass(ticker.priceChangePercent)">
+                                    {{ ticker.priceChangePercent > 0 ? '+' : '' }}{{ (ticker.priceChangePercent *
+                                    100).toFixed(2) }}%
+                                </div>
+                                <el-button v-if="!favoriteContractIds.includes(ticker.contractId)" size="small" type="text"
+                                    @click="addFavorite(ticker.contractId)">自选</el-button>
+                            </div>
+                        </div>
+                    </div>
+                    <el-pagination background layout="prev, pager, next" :total="allTickersTotal"
+                        :page-size="allTickersPageSize" :current-page="allTickersPage"
+                        @current-change="handleAllTickersPageChange" style="margin-top: 10px; text-align: center;">
+                    </el-pagination>
+                </el-tab-pane>
+            </el-tabs>
+        </div>
+        
+        <!-- 价格面板切换按钮 -->
+        <el-button class="price-panel-toggle" @click="showPricePanel = !showPricePanel" type="primary" circle>
+            {{ showPricePanel ? '×' : '$' }}
+        </el-button>
 
         <!-- 添加交易员对话框 -->
         <el-dialog v-model="showAddTraderDialog" title="添加交易员" width="30%">
@@ -166,12 +277,26 @@
                 </span>
             </template>
         </el-dialog>
-<!-- 活跃订单对话框 -->
+<!-- 手动添加自选对话框 -->
+<el-dialog v-model="showAddSymbolDialog" title="添加自选币种" width="30%">
+    <el-form label-width="80px">
+        <el-form-item label="交易对">
+            <el-input v-model="newSymbolInput" placeholder="请输入交易对，如：ETH/USDT" @keyup.enter="addSymbolManually">
+            </el-input>
+        </el-form-item>
+    </el-form>
+    <template #footer>
+        <span class="dialog-footer">
+            <el-button @click="showAddSymbolDialog = false">取消</el-button>
+            <el-button type="primary" @click="addSymbolManually">添加</el-button>
+        </span>
+    </template>
+</el-dialog>
+<!-- 持仓中订单对话框 -->
 <el-dialog v-model="showActiveOrdersDialog"
-    :title="`${selectedTrader?.trader_name || selectedTrader?.trader_user_id} 的活跃订单`" width="80%">
+    :title="`${selectedTrader?.trader_name || selectedTrader?.trader_user_id} 的持仓中订单`" width="70%">
     <el-table :data="activeOrders" style="width: 100%">
-        <el-table-column prop="order_id" label="订单ID" width="150"></el-table-column>
-        <el-table-column prop="contract_symbol" label="交易对" width="120"></el-table-column>
+        <el-table-column prop="contract_symbol" label="交易对"></el-table-column>
         <el-table-column prop="position_side" label="方向" width="80">
             <template #default="scope">
                 <el-tag :type="scope.row.position_side === 'LONG' ? 'success' : 'danger'">
@@ -179,21 +304,35 @@
                 </el-tag>
             </template>
         </el-table-column>
-        <el-table-column prop="open_price" label="开仓价格" width="120"></el-table-column>
+        <el-table-column prop="open_price" label="开仓价格"></el-table-column>
+        <el-table-column label="当前价格">
+            <template #default="scope">
+                <span :class="getPriceClass(getOrderPnlPercent(scope.row))">
+                    {{ getCurrentPrice(scope.row.contract_symbol) }}
+                </span>
+            </template>
+        </el-table-column>
         <el-table-column prop="open_leverage" label="杠杆" width="80"></el-table-column>
-        <el-table-column prop="first_seen_at" label="开仓时间" width="180">
+        <el-table-column label="盈亏比例">
+            <template #default="scope">
+                <span :class="getPriceClass(getOrderPnlPercent(scope.row))" style="font-weight: bold;">
+                    {{ getOrderPnlPercent(scope.row) > 0 ? '+' : '' }}{{ getOrderPnlPercent(scope.row).toFixed(2) }}%
+                </span>
+            </template>
+        </el-table-column>
+        <el-table-column prop="first_seen_at" label="开仓时间">
             <template #default="scope">
                 {{ formatDate(scope.row.first_seen_at) }}
             </template>
         </el-table-column>
-        <el-table-column label="持仓时长" width="120">
+        <el-table-column label="持仓时长">
             <template #default="scope">
                 {{ getDuration(scope.row.first_seen_at) }}
             </template>
         </el-table-column>
     </el-table>
     <div v-if="activeOrders.length === 0" style="text-align: center; padding: 2rem; color: #999;">
-        暂无活跃订单
+        暂无持仓中订单
     </div>
 </el-dialog>
     </div>
@@ -209,13 +348,20 @@
                     traders: [],
                     orders: [],
                     activeOrders: [],
-                    traderActiveOrderCounts: {}, // 存储每个交易员的活跃订单数
+                    traderActiveOrderCounts: {}, // 存储每个交易员的持仓订单数
                     traderTotal: 0,
                     traderPage: 1,
                     traderPageSize: 10,
                     orderTotal: 0,
                     orderPage: 1,
                     orderPageSize: 20,
+                    // 订单筛选
+                    orderFilters: {
+                        trader_name: '',
+                        contract_symbol: '',
+                        status: '',
+                        date_filter: ''
+                    },
                     showAddTraderDialog: false,
                     showActiveOrdersDialog: false,
                     selectedTrader: null,
@@ -224,19 +370,53 @@
                         trader_name: '',
                         monitor_interval: 30
                     },
-                    editingTrader: null
+                    editingTrader: null,
+                    // 价格相关数据
+                    showPricePanel: true,
+                    activePriceTab: 'favorite',
+                    ws: null,
+                    wsReconnectAttempts: 0,
+                    maxReconnectAttempts: 5,
+                    reconnectInterval: 5000,
+                    pingInterval: null,
+                    tickers: {}, // 所有ticker数据，以contractId为key
+                    favoriteContractIds: [], // 自选币种ID列表
+                    contractNames: {}, // 合约ID到名称的映射，从contracts.json加载
+                    // 手动添加自选相关
+                    showAddSymbolDialog: false,
+                    newSymbolInput: '',
+                    // 分页相关
+                    allTickersPage: 1,
+                    allTickersPageSize: 20
                 }
             },
             mounted() {
+                this.loadContractNames();
                 this.loadStats();
                 this.loadTraders();
-                this.loadOrders();
+                this.loadOrdersWithFilters();
+                this.loadFavorites();
+                this.initWebSocket();
                 // 定时刷新数据
                 setInterval(() => {
                     this.loadStats();
-                    this.loadOrders();
+                    this.loadOrdersWithFilters();
                     this.loadTraderActiveOrderCounts();
                 }, 30000);
+            },
+            computed: {
+                allTickers() {
+                    const sorted = Object.values(this.tickers).sort((a, b) => parseFloat(b.value) - parseFloat(a.value));
+                    const startIndex = (this.allTickersPage - 1) * this.allTickersPageSize;
+                    const endIndex = startIndex + this.allTickersPageSize;
+                    return sorted.slice(startIndex, endIndex);
+                },
+                allTickersTotal() {
+                    return Object.keys(this.tickers).length;
+                },
+                favoriteTickers() {
+                    return this.favoriteContractIds.map(id => this.tickers[id]).filter(ticker => ticker);
+                }
             },
             methods: {
                 async loadStats() {
@@ -247,12 +427,23 @@
                         console.error('Load stats failed:', error);
                     }
                 },
+                // 加载合约映射数据
+                async loadContractNames() {
+                    try {
+                        const response = await axios.get('/static/contracts.json');
+                        this.contractNames = response.data;
+                        console.log('Loaded contract names:', Object.keys(this.contractNames).length);
+                    } catch (error) {
+                        console.error('Failed to load contract names:', error);
+                        ElMessage.error('加载合约数据失败');
+                    }
+                },
                 async loadTraders() {
                     try {
                         const response = await axios.get(`/api/v1/traders?page=${this.traderPage}&size=${this.traderPageSize}`);
                         this.traders = response.data.data;
                         this.traderTotal = response.data.total;
-                        // 加载完交易员后，加载活跃订单数
+                        // 加载完交易员后，加载持仓订单数
                         this.loadTraderActiveOrderCounts();
                     } catch (error) {
                         ElMessage.error('加载交易员列表失败');
@@ -267,8 +458,46 @@
                         ElMessage.error('加载订单历史失败');
                     }
                 },
+                async loadOrdersWithFilters() {
+                    try {
+                        const params = new URLSearchParams({
+                            page: this.orderPage.toString(),
+                            size: this.orderPageSize.toString()
+                        });
+
+                        // 添加筛选参数
+                        if (this.orderFilters.trader_name) {
+                            params.append('trader_name', this.orderFilters.trader_name);
+                        }
+                        if (this.orderFilters.contract_symbol) {
+                            params.append('contract_symbol', this.orderFilters.contract_symbol);
+                        }
+                        if (this.orderFilters.status) {
+                            params.append('status', this.orderFilters.status);
+                        }
+                        if (this.orderFilters.date_filter) {
+                            params.append('date_filter', this.orderFilters.date_filter);
+                        }
+
+                        const response = await axios.get(`/api/v1/orders?${params.toString()}`);
+                        this.orders = response.data.data;
+                        this.orderTotal = response.data.total;
+                    } catch (error) {
+                        ElMessage.error('加载订单历史失败');
+                    }
+                },
+                resetFilters() {
+                    this.orderFilters = {
+                        trader_name: '',
+                        contract_symbol: '',
+                        status: '',
+                        date_filter: ''
+                    };
+                    this.orderPage = 1;
+                    this.loadOrdersWithFilters();
+                },
                 async loadTraderActiveOrderCounts() {
-                    // 为每个交易员加载活跃订单数
+                    // 为每个交易员加载持仓订单数
                     for (const trader of this.traders) {
                         try {
                             const response = await axios.get(`/api/v1/orders/active?trader_user_id=${trader.trader_user_id}`);
@@ -285,7 +514,7 @@
                         this.activeOrders = response.data.data;
                         this.showActiveOrdersDialog = true;
                     } catch (error) {
-                        ElMessage.error('加载活跃订单失败');
+                        ElMessage.error('加载持仓订单失败');
                         this.activeOrders = [];
                         this.showActiveOrdersDialog = true;
                     }
@@ -309,6 +538,218 @@
                     } else {
                         return `${minutes}分钟`;
                     }
+                },
+                // WebSocket相关方法
+                initWebSocket() {
+                    this.connectWebSocket();
+                },
+                connectWebSocket() {
+                    try {
+                        this.ws = new WebSocket('wss://ws-gateway1.janapw.com/api/v1/public/ws?vs=z5z7Dug8SjhTlG9OFxy87dMe4a47K6Vu&compress=1&languageType=1');
+
+                        this.ws.onopen = () => {
+                            console.log('WebSocket connected');
+                            this.wsReconnectAttempts = 0;
+                            this.startPing();
+                            this.subscribeToTicker();
+                        };
+
+                        this.ws.onmessage = (event) => {
+                            this.handleWebSocketMessage(event);
+                        };
+
+                        this.ws.onclose = () => {
+                            console.log('WebSocket disconnected');
+                            this.stopPing();
+                            this.handleReconnect();
+                        };
+
+                        this.ws.onerror = (error) => {
+                            console.error('WebSocket error:', error);
+                        };
+                    } catch (error) {
+                        console.error('Failed to connect WebSocket:', error);
+                        this.handleReconnect();
+                    }
+                },
+                handleWebSocketMessage(event) {
+                    try {
+                        const message = JSON.parse(event.data);
+
+                        if (message.event === 'ping') {
+                            // 响应服务器的ping
+                            this.sendPong(message.time);
+                        } else if (message.event === 'pong') {
+                            // 服务器对我们ping的响应
+                            console.log('Received pong from server');
+                        } else if (message.event === 'payload' && message.channel === 'ticker.all.v2') {
+                            // 处理价格数据
+                            this.updateTickers(message.data);
+                        }
+                    } catch (error) {
+                        console.error('Failed to parse WebSocket message:', error);
+                    }
+                },
+                startPing() {
+                    this.stopPing();
+                    this.pingInterval = setInterval(() => {
+                        if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                            const pingMessage = {
+                                event: 'ping',
+                                time: Date.now().toString()
+                            };
+                            this.ws.send(JSON.stringify(pingMessage));
+                        }
+                    }, 30000); // 30秒发送一次ping
+                },
+                stopPing() {
+                    if (this.pingInterval) {
+                        clearInterval(this.pingInterval);
+                        this.pingInterval = null;
+                    }
+                },
+                sendPong(time) {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        const pongMessage = {
+                            event: 'pong',
+                            time: time
+                        };
+                        this.ws.send(JSON.stringify(pongMessage));
+                    }
+                },
+                subscribeToTicker() {
+                    if (this.ws && this.ws.readyState === WebSocket.OPEN) {
+                        const subscribeMessage = {
+                            event: 'subscribe',
+                            channel: 'ticker.all.v2'
+                        };
+                        this.ws.send(JSON.stringify(subscribeMessage));
+                        console.log('Subscribed to ticker.all.v2');
+                    }
+                },
+                handleReconnect() {
+                    if (this.wsReconnectAttempts < this.maxReconnectAttempts) {
+                        this.wsReconnectAttempts++;
+                        console.log(`Attempting to reconnect... (${this.wsReconnectAttempts}/${this.maxReconnectAttempts})`);
+                        setTimeout(() => {
+                            this.connectWebSocket();
+                        }, this.reconnectInterval);
+                    } else {
+                        console.error('Max reconnection attempts reached');
+                    }
+                },
+                updateTickers(tickerData) {
+                    tickerData.forEach(ticker => {
+                        this.tickers[ticker.contractId] = {
+                            ...ticker,
+                            priceChangePercent: parseFloat(ticker.priceChangePercent),
+                            lastPrice: parseFloat(ticker.lastPrice),
+                            markPrice: parseFloat(ticker.markPrice)
+                        };
+                    });
+                },
+                // 价格相关方法
+                getPriceClass(changePercent) {
+                    if (changePercent > 0) return 'price-up';
+                    if (changePercent < 0) return 'price-down';
+                    return '';
+                },
+                formatPrice(price) {
+                    if (!price) return '--';
+                    return parseFloat(price).toLocaleString('en-US', {
+                        minimumFractionDigits: 2,
+                        maximumFractionDigits: 6
+                    });
+                },
+                getSymbolName(contractId) {
+                    return this.contractNames[contractId] || `Contract ${contractId}`;
+                },
+                getCurrentPrice(contractSymbol) {
+                    // 根据合约符号查找对应的价格
+                    const ticker = Object.values(this.tickers).find(t =>
+                        this.getSymbolName(t.contractId) === contractSymbol
+                    );
+                    return ticker ? this.formatPrice(ticker.lastPrice) : '--';
+                },
+                getOrderPnlPercent(order) {
+                    if (!order.contract_symbol || !order.open_price) return 0;
+
+                    const ticker = Object.values(this.tickers).find(t =>
+                        this.getSymbolName(t.contractId) === order.contract_symbol
+                    );
+
+                    if (!ticker) return 0;
+
+                    const openPrice = parseFloat(order.open_price);
+                    const currentPrice = ticker.lastPrice;
+                    const leverage = parseFloat(order.open_leverage.replace('x', ''));
+
+                    let pnlPercent = 0;
+                    if (order.position_side === 'LONG') {
+                        pnlPercent = ((currentPrice - openPrice) / openPrice) * 100 * leverage;
+                    } else {
+                        pnlPercent = ((openPrice - currentPrice) / openPrice) * 100 * leverage;
+                    }
+
+                    return pnlPercent;
+                },
+                // 自选管理方法
+                loadFavorites() {
+                    const saved = localStorage.getItem('favorite_contracts');
+                    if (saved) {
+                        this.favoriteContractIds = JSON.parse(saved);
+                    }
+                },
+                saveFavorites() {
+                    localStorage.setItem('favorite_contracts', JSON.stringify(this.favoriteContractIds));
+                },
+                addFavorite(contractId) {
+                    if (!this.favoriteContractIds.includes(contractId)) {
+                        this.favoriteContractIds.push(contractId);
+                        this.saveFavorites();
+                        ElMessage.success('已添加到自选');
+                    }
+                },
+                removeFavorite(contractId) {
+                    const index = this.favoriteContractIds.indexOf(contractId);
+                    if (index > -1) {
+                        this.favoriteContractIds.splice(index, 1);
+                        this.saveFavorites();
+                        ElMessage.success('已从自选移除');
+                    }
+                },
+                // 手动添加自选币种
+                addSymbolManually() {
+                    const symbol = this.newSymbolInput.trim().toUpperCase();
+                    if (!symbol) {
+                        ElMessage.error('请输入交易对');
+                        return;
+                    }
+
+                    // 查找对应的contractId
+                    const contractId = Object.keys(this.contractNames).find(id =>
+                        this.contractNames[id] === symbol
+                    );
+
+                    if (!contractId) {
+                        ElMessage.error(`未找到交易对 ${symbol}，请检查输入是否正确`);
+                        return;
+                    }
+
+                    if (this.favoriteContractIds.includes(contractId)) {
+                        ElMessage.warning('该币种已在自选列表中');
+                        return;
+                    }
+
+                    this.favoriteContractIds.push(contractId);
+                    this.saveFavorites();
+                    this.showAddSymbolDialog = false;
+                    this.newSymbolInput = '';
+                    ElMessage.success(`已添加 ${symbol} 到自选`);
+                },
+                // 处理全部币种分页
+                handleAllTickersPageChange(page) {
+                    this.allTickersPage = page;
                 },
                 async saveTrader() {
                     try {
@@ -376,14 +817,21 @@
                 },
                 handleOrderSizeChange(size) {
                     this.orderPageSize = size;
-                    this.loadOrders();
+                    this.loadOrdersWithFilters();
                 },
                 handleOrderPageChange(page) {
                     this.orderPage = page;
-                    this.loadOrders();
+                    this.loadOrdersWithFilters();
                 },
                 formatDate(dateStr) {
                     return new Date(dateStr).toLocaleString('zh-CN');
+                }
+            },
+            beforeUnmount() {
+                // 清理WebSocket连接
+                this.stopPing();
+                if (this.ws) {
+                    this.ws.close();
                 }
             }
         }).use(ElementPlus).mount('#app');

@@ -62,6 +62,13 @@
                     <el-table-column prop="trader_user_id" label="交易员ID" width="150"></el-table-column>
                     <el-table-column prop="trader_name" label="交易员名称" width="120"></el-table-column>
                     <el-table-column prop="monitor_interval" label="监控间隔(秒)" width="120"></el-table-column>
+                    <el-table-column label="当前带单数" width="120">
+                        <template #default="scope">
+                            <el-button type="text" @click="showActiveOrders(scope.row)" :disabled="!scope.row.is_active">
+                                {{ getActiveOrderCount(scope.row.trader_user_id) }}
+                            </el-button>
+                        </template>
+                    </el-table-column>
                     <el-table-column prop="is_active" label="状态" width="100">
                         <template #default="scope">
                             <el-tag :type="scope.row.is_active ? 'success' : 'danger'">
@@ -107,11 +114,9 @@
                 </template>
 
                 <el-table :data="orders" style="width: 100%">
-                    <el-table-column prop="trader_user_id" label="交易员ID" width="120"></el-table-column>
-                    <el-table-column prop="order_id" label="订单ID" width="150"></el-table-column>
+                    <el-table-column prop="trader_name" label="交易员" width="120"></el-table-column>
                     <el-table-column prop="contract_symbol" label="交易对" width="120"></el-table-column>
                     <el-table-column prop="position_side" label="方向" width="80"></el-table-column>
-                    <el-table-column prop="open_size" label="数量" width="120"></el-table-column>
                     <el-table-column prop="open_price" label="价格" width="120"></el-table-column>
                     <el-table-column prop="open_leverage" label="杠杆" width="80"></el-table-column>
                     <el-table-column prop="status" label="状态" width="100">
@@ -161,6 +166,36 @@
                 </span>
             </template>
         </el-dialog>
+<!-- 活跃订单对话框 -->
+<el-dialog v-model="showActiveOrdersDialog"
+    :title="`${selectedTrader?.trader_name || selectedTrader?.trader_user_id} 的活跃订单`" width="80%">
+    <el-table :data="activeOrders" style="width: 100%">
+        <el-table-column prop="order_id" label="订单ID" width="150"></el-table-column>
+        <el-table-column prop="contract_symbol" label="交易对" width="120"></el-table-column>
+        <el-table-column prop="position_side" label="方向" width="80">
+            <template #default="scope">
+                <el-tag :type="scope.row.position_side === 'LONG' ? 'success' : 'danger'">
+                    {{ scope.row.position_side === 'LONG' ? '多' : '空' }}
+                </el-tag>
+            </template>
+        </el-table-column>
+        <el-table-column prop="open_price" label="开仓价格" width="120"></el-table-column>
+        <el-table-column prop="open_leverage" label="杠杆" width="80"></el-table-column>
+        <el-table-column prop="first_seen_at" label="开仓时间" width="180">
+            <template #default="scope">
+                {{ formatDate(scope.row.first_seen_at) }}
+            </template>
+        </el-table-column>
+        <el-table-column label="持仓时长" width="120">
+            <template #default="scope">
+                {{ getDuration(scope.row.first_seen_at) }}
+            </template>
+        </el-table-column>
+    </el-table>
+    <div v-if="activeOrders.length === 0" style="text-align: center; padding: 2rem; color: #999;">
+        暂无活跃订单
+    </div>
+</el-dialog>
     </div>
 
     <script>
@@ -173,6 +208,8 @@
                     stats: {},
                     traders: [],
                     orders: [],
+                    activeOrders: [],
+                    traderActiveOrderCounts: {}, // 存储每个交易员的活跃订单数
                     traderTotal: 0,
                     traderPage: 1,
                     traderPageSize: 10,
@@ -180,6 +217,8 @@
                     orderPage: 1,
                     orderPageSize: 20,
                     showAddTraderDialog: false,
+                    showActiveOrdersDialog: false,
+                    selectedTrader: null,
                     traderForm: {
                         trader_user_id: '',
                         trader_name: '',
@@ -196,6 +235,7 @@
                 setInterval(() => {
                     this.loadStats();
                     this.loadOrders();
+                    this.loadTraderActiveOrderCounts();
                 }, 30000);
             },
             methods: {
@@ -212,6 +252,8 @@
                         const response = await axios.get(`/api/v1/traders?page=${this.traderPage}&size=${this.traderPageSize}`);
                         this.traders = response.data.data;
                         this.traderTotal = response.data.total;
+                        // 加载完交易员后，加载活跃订单数
+                        this.loadTraderActiveOrderCounts();
                     } catch (error) {
                         ElMessage.error('加载交易员列表失败');
                     }
@@ -223,6 +265,49 @@
                         this.orderTotal = response.data.total;
                     } catch (error) {
                         ElMessage.error('加载订单历史失败');
+                    }
+                },
+                async loadTraderActiveOrderCounts() {
+                    // 为每个交易员加载活跃订单数
+                    for (const trader of this.traders) {
+                        try {
+                            const response = await axios.get(`/api/v1/orders/active?trader_user_id=${trader.trader_user_id}`);
+                            this.traderActiveOrderCounts[trader.trader_user_id] = response.data.data.length;
+                        } catch (error) {
+                            this.traderActiveOrderCounts[trader.trader_user_id] = 0;
+                        }
+                    }
+                },
+                async showActiveOrders(trader) {
+                    this.selectedTrader = trader;
+                    try {
+                        const response = await axios.get(`/api/v1/orders/active?trader_user_id=${trader.trader_user_id}`);
+                        this.activeOrders = response.data.data;
+                        this.showActiveOrdersDialog = true;
+                    } catch (error) {
+                        ElMessage.error('加载活跃订单失败');
+                        this.activeOrders = [];
+                        this.showActiveOrdersDialog = true;
+                    }
+                },
+                getActiveOrderCount(traderUserID) {
+                    return this.traderActiveOrderCounts[traderUserID] || 0;
+                },
+                getDuration(startTime) {
+                    const start = new Date(startTime);
+                    const now = new Date();
+                    const diff = now - start;
+
+                    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
+                    const hours = Math.floor((diff % (1000 * 60 * 60 * 24)) / (1000 * 60 * 60));
+                    const minutes = Math.floor((diff % (1000 * 60 * 60)) / (1000 * 60));
+
+                    if (days > 0) {
+                        return `${days}天${hours}小时`;
+                    } else if (hours > 0) {
+                        return `${hours}小时${minutes}分钟`;
+                    } else {
+                        return `${minutes}分钟`;
                     }
                 },
                 async saveTrader() {

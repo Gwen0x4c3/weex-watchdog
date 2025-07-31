@@ -65,7 +65,7 @@ func (s *WxPusherNotificationClient) BuildNotificationMessage(orders []*model.Or
 			directionColor = "#dc3545" // 红色
 		}
 		
-		previewPart := fmt.Sprintf(`<span style="display: inline-block; margin: 2px 4px; padding: 2px 6px; background-color: %s; color: white; border-radius: 10px; font-size: 11px; font-weight: bold;">%s(%s)｜</span>`, 
+		previewPart := fmt.Sprintf(`<span style="display: inline-block; margin: 2px 4px; padding: 2px 6px; background-color: %s; color: white; border-radius: 10px; font-size: 11px; font-weight: bold;">%s(%s)</span>`, 
 			directionColor, symbol, directionText)
 		previewParts = append(previewParts, previewPart)
 	}

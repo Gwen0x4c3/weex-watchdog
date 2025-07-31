@@ -7,97 +7,12 @@ import (
 	"strconv"
 	"sync"
 	"time"
-
 	"weex-watchdog/internal/model"
 	"weex-watchdog/internal/repository"
 	"weex-watchdog/pkg/logger"
 	"weex-watchdog/pkg/notification"
 	"weex-watchdog/pkg/weex"
 )
-
-// TraderService 交易员服务
-type TraderService struct {
-	traderRepo     repository.TraderRepository
-	orderService   *OrderService
-	logger         *logger.Logger
-	monitorService *MonitorService // 添加对监控服务的引用
-}
-
-// NewTraderService 创建交易员服务
-func NewTraderService(traderRepo repository.TraderRepository, orderService *OrderService, logger *logger.Logger) *TraderService {
-	return &TraderService{
-		traderRepo: traderRepo,
-		orderService: orderService,
-		logger:     logger,
-	}
-}
-
-// SetMonitorService 设置监控服务引用（避免循环依赖）
-func (s *TraderService) SetMonitorService(monitorService *MonitorService) {
-	s.monitorService = monitorService
-}
-
-// CreateTrader 创建交易员监控
-func (s *TraderService) CreateTrader(trader *model.TraderMonitor) error {
-	// 检查是否已存在
-	existing, err := s.traderRepo.GetByTraderUserID(trader.TraderUserID)
-	if err == nil && existing != nil {
-		return fmt.Errorf("trader %s already exists", trader.TraderUserID)
-	}
-
-	return s.traderRepo.Create(trader)
-}
-
-// GetTraders 获取交易员列表
-func (s *TraderService) GetTraders(page, pageSize int) ([]model.TraderMonitor, int64, error) {
-	offset := (page - 1) * pageSize
-	return s.traderRepo.GetAll(offset, pageSize)
-}
-
-// GetTraderByID 根据ID获取交易员
-func (s *TraderService) GetTraderByID(id uint) (*model.TraderMonitor, error) {
-	return s.traderRepo.GetByID(id)
-}
-
-// UpdateTrader 更新交易员信息
-func (s *TraderService) UpdateTrader(trader *model.TraderMonitor) error {
-	err := s.traderRepo.Update(trader)
-	if err != nil {
-		return err
-	}
-
-	// 清理监控缓存，以便新的监控间隔立即生效
-	if s.monitorService != nil {
-		s.monitorService.ClearTraderCache(trader.TraderUserID)
-	}
-
-	return nil
-}
-
-// DeleteTrader 删除交易员
-func (s *TraderService) DeleteTrader(id uint) error {
-	// 删除交易员
-	if err := s.traderRepo.Delete(id); err != nil {
-		return fmt.Errorf("failed to delete trader: %w", err)
-	}
-	// 删除交易员的订单
-	if err := s.orderService.DeleteByTraderId(id); err != nil {
-		return fmt.Errorf("failed to delete trader's orders: %w", err)
-	}
-	// 清理监控缓存
-	s.monitorService.ClearTraderCache(strconv.FormatUint(uint64(id), 10))
-	return nil
-}
-
-// ToggleTraderMonitor 启用/禁用交易员监控
-func (s *TraderService) ToggleTraderMonitor(id uint, isActive bool) error {
-	return s.traderRepo.ToggleActive(id, isActive)
-}
-
-// GetActiveTraders 获取活跃交易员
-func (s *TraderService) GetActiveTraders() ([]model.TraderMonitor, error) {
-	return s.traderRepo.GetActiveTraders()
-}
 
 // MonitorService 监控服务
 type MonitorService struct {
@@ -250,7 +165,7 @@ func (s *MonitorService) detectNewOrders(traderUserID string, currentOrders []we
 
 			orderHistory := &model.OrderHistory{
 				TraderUserID:   traderUserID,
-				TraderName: 	order.TraderName,
+				TraderName:     order.TraderName,
 				OrderID:        order.OpenOrderID,
 				OrderData:      s.convertToJSON(order),
 				ContractSymbol: symbolName,
@@ -341,7 +256,7 @@ func (s *MonitorService) sendNewOrderNotification(newOrders []*model.OrderHistor
 	if len(newOrders) == 0 {
 		return
 	}
-	
+
 	notificationIds := make([]uint, 0)
 	for _, order := range newOrders {
 		// 记录通知日志
@@ -363,13 +278,13 @@ func (s *MonitorService) sendNewOrderNotification(newOrders []*model.OrderHistor
 
 	// 构建通知消息
 	message := s.notificationService.BuildNotificationMessage(newOrders, true)
-	
+
 	// 发送通知
 	notificationMsg := &notification.NotificationMessage{
-		Type: string(model.NotificationTypeNewOrder),
+		Type:    string(model.NotificationTypeNewOrder),
 		Message: message,
 	}
-	
+
 	if err := s.notificationService.SendMessage(*notificationMsg); err != nil {
 		s.logger.WithField("error", err).Error("Failed to send new order notification")
 		s.notificationRepo.UpdateStatusBatch(notificationIds, model.NotificationStatusFailed, err.Error())
@@ -383,9 +298,9 @@ func (s *MonitorService) sendCloseOrderNotification(closedOrders []*model.OrderH
 	if len(closedOrders) == 0 {
 		return
 	}
-	
+
 	notificationIds := make([]uint, 0)
-	
+
 	for _, order := range closedOrders {
 		// 记录通知日志
 		notificationLog := &model.NotificationLog{
@@ -403,16 +318,16 @@ func (s *MonitorService) sendCloseOrderNotification(closedOrders []*model.OrderH
 
 		notificationIds = append(notificationIds, notificationLog.ID)
 	}
-	
+
 	// 构建通知消息
 	message := s.notificationService.BuildNotificationMessage(closedOrders, false)
-	
+
 	// 发送通知
 	notificationMsg := &notification.NotificationMessage{
 		Type:    string(model.NotificationTypeOrderClosed),
 		Message: message,
 	}
-	
+
 	if err := s.notificationService.SendMessage(*notificationMsg); err != nil {
 		s.notificationRepo.UpdateStatusBatch(notificationIds, model.NotificationStatusFailed, err.Error())
 		s.logger.WithField("error", err).Error("Failed to send close order notification")
@@ -443,70 +358,4 @@ func (s *MonitorService) RefreshAllTraderCache() {
 	defer s.mu.Unlock()
 	s.traderLastCheck = make(map[string]time.Time)
 	s.logger.Info("Refreshed all trader monitoring cache")
-}
-
-// OrderService 订单服务
-type OrderService struct {
-	orderRepo repository.OrderRepository
-	logger    *logger.Logger
-}
-
-// NewOrderService 创建订单服务
-func NewOrderService(orderRepo repository.OrderRepository, logger *logger.Logger) *OrderService {
-	return &OrderService{
-		orderRepo: orderRepo,
-		logger:    logger,
-	}
-}
-
-// GetOrderHistory 获取订单历史
-func (s *OrderService) GetOrderHistory(traderUserID string, page, pageSize int) ([]model.OrderHistory, int64, error) {
-	offset := (page - 1) * pageSize
-	return s.orderRepo.GetOrderHistory(traderUserID, offset, pageSize)
-}
-
-// GetStatistics 获取统计数据
-func (s *OrderService) GetStatistics(traderUserID string) (map[string]interface{}, error) {
-	return s.orderRepo.GetStatistics(traderUserID)
-}
-
-// DeleteByTraderId 删除指定交易员的所有订单
-func (s *OrderService) DeleteByTraderId(traderID uint) error {
-	// 删除指定交易员的所有订单
-	return s.orderRepo.DeleteByTraderID(traderID)
-}
-
-// NotificationService 通知服务
-type NotificationService struct {
-	notificationRepo repository.NotificationRepository
-	notificationClient notification.Client
-	logger           *logger.Logger
-}
-
-// NewNotificationService 创建通知服务
-func NewNotificationService(notificationRepo repository.NotificationRepository, notificationClient notification.Client, logger *logger.Logger) *NotificationService {
-	return &NotificationService{
-		notificationRepo: notificationRepo,
-		notificationClient: notificationClient,
-		logger:           logger,
-	}
-}
-
-// GetNotificationLogs 获取通知记录
-func (s *NotificationService) GetNotificationLogs(traderUserID string, page, pageSize int) ([]model.NotificationLog, int64, error) {
-	offset := (page - 1) * pageSize
-	return s.notificationRepo.GetLogs(traderUserID, offset, pageSize)
-}
-
-// TestNotification 发送测试消息
-func (s *NotificationService) TestNotification(message string) error {
-	notificationMsg := &notification.NotificationMessage{
-		Type: string(model.NotificationTypeNewOrder),
-		Message: message,
-	}
-	if err := s.notificationClient.SendMessage(*notificationMsg); err != nil {
-		s.logger.WithField("error", err).Error("Failed to send test notification")
-		return err
-	}
-	return nil
 }

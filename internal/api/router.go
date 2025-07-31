@@ -51,6 +51,7 @@ func (r *Router) SetupRoutes(engine *gin.Engine) {
 		orders := v1.Group("/orders")
 		{
 			orders.GET("", r.orderHandler.GetOrderHistory)
+			orders.GET("/active", r.orderHandler.GetActiveOrders)
 			orders.GET("/statistics", r.orderHandler.GetStatistics)
 		}
 

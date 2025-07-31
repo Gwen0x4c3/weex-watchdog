@@ -279,6 +279,34 @@ func (h *OrderHandler) GetOrderHistory(c *gin.Context) {
 	})
 }
 
+// GetActiveOrders 获取指定交易员的活跃订单
+func (h *OrderHandler) GetActiveOrders(c *gin.Context) {
+	traderUserID := c.Query("trader_user_id")
+	if traderUserID == "" {
+		c.JSON(http.StatusBadRequest, Response{
+			Success: false,
+			Message: "trader_user_id is required",
+		})
+		return
+	}
+
+	orders, err := h.orderService.GetActiveOrdersByTrader(traderUserID)
+	if err != nil {
+		h.logger.WithField("error", err).Error("Failed to get active orders")
+		c.JSON(http.StatusInternalServerError, Response{
+			Success: false,
+			Message: "Failed to get active orders: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, Response{
+		Success: true,
+		Message: "Active orders retrieved successfully",
+		Data:    orders,
+	})
+}
+
 // GetStatistics 获取统计数据
 func (h *OrderHandler) GetStatistics(c *gin.Context) {
 	traderUserID := c.Query("trader_user_id")

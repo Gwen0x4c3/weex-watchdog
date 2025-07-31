@@ -1,0 +1,525 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>交易员分析报告</title>
+    <link href="https://unpkg.com/element-plus/dist/index.css" rel="stylesheet">
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://unpkg.com/element-plus/dist/index.full.js"></script>
+    <script src="https://unpkg.com/axios/dist/axios.min.js"></script>
+    <script src="https://unpkg.com/echarts@5.4.0/dist/echarts.min.js"></script>
+    <style>
+        body { 
+            margin: 0; 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #f5f5f5;
+        }
+        .header { 
+            background: #409EFF; 
+            color: white; 
+            padding: 1rem; 
+            text-align: center; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .container { 
+            max-width: 1400px; 
+            margin: 0 auto; 
+            padding: 2rem; 
+        }
+        .analysis-header {
+            background: white;
+            padding: 20px;
+            margin-bottom: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metrics-grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); 
+            gap: 1rem; 
+            margin-bottom: 2rem; 
+        }
+        .metric-card { 
+            background: white;
+            text-align: center; 
+            padding: 1.5rem; 
+            border-radius: 8px; 
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .metric-value { 
+            font-size: 1.8rem; 
+            font-weight: bold; 
+            margin-bottom: 0.5rem;
+        }
+        .metric-label { 
+            color: #666; 
+            font-size: 0.9rem;
+        }
+        .chart-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(400px, 1fr));
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+        .chart-card {
+            background: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .chart-title {
+            font-size: 1.2rem;
+            font-weight: bold;
+            margin-bottom: 15px;
+            color: #333;
+        }
+        .chart-container {
+            width: 100%;
+            height: 300px;
+        }
+        .profit { color: #67c23a; }
+        .loss { color: #f56c6c; }
+        .loading-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: rgba(255,255,255,0.8);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 9999;
+        }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <div class="header">
+            <h1>📊 交易员分析报告</h1>
+            <p>深度分析交易员历史表现，科学评估投资价值</p>
+        </div>
+
+        <div class="container">
+            <!-- 分析参数设置 -->
+            <div class="analysis-header">
+                <el-form :inline="true" :model="analysisParams" @submit.prevent="analyzeTrader">
+                    <el-form-item label="交易员ID">
+                        <el-input v-model="analysisParams.traderId" placeholder="输入交易员ID" style="width: 150px;"></el-input>
+                    </el-form-item>
+                    <el-form-item label="分析时间范围">
+                        <el-select v-model="analysisParams.timeRange" style="width: 120px;">
+                            <el-option label="最近7天" value="7d"></el-option>
+                            <el-option label="最近30天" value="30d"></el-option>
+                            <el-option label="最近90天" value="90d"></el-option>
+                            <el-option label="最近1年" value="1y"></el-option>
+                            <el-option label="全部" value="all"></el-option>
+                        </el-select>
+                    </el-form-item>
+                    <el-form-item label="初始资金(U)">
+                        <el-input-number v-model="analysisParams.initialCapital" :min="0" :step="100" style="width: 150px;"></el-input-number>
+                    </el-form-item>
+                    <el-form-item label="单次跟投(U)">
+                        <el-input-number v-model="analysisParams.investPerOrder" :min="0" :step="10" style="width: 150px;"></el-input-number>
+                    </el-form-item>
+                    <el-form-item>
+                        <el-button type="primary" @click="analyzeTrader" :loading="loading">开始分析</el-button>
+                    </el-form-item>
+                </el-form>
+            </div>
+
+            <!-- 加载遮罩 -->
+            <div v-if="loading" class="loading-overlay">
+                <el-loading-spinner size="large"></el-loading-spinner>
+            </div>
+
+            <!-- 分析结果 -->
+            <div v-if="analysisResult">
+                <!-- 基础指标 -->
+                <div class="metrics-grid">
+                    <div class="metric-card">
+                        <div class="metric-value">{{ analysisResult.total_orders }}</div>
+                        <div class="metric-label">总订单数</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" :class="analysisResult.win_rate >= 50 ? 'profit' : 'loss'">
+                            {{ analysisResult.win_rate.toFixed(2) }}%
+                        </div>
+                        <div class="metric-label">胜率</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" :class="analysisResult.total_pnl >= 0 ? 'profit' : 'loss'">
+                            {{ analysisResult.total_pnl.toFixed(2) }}U
+                        </div>
+                        <div class="metric-label">总盈亏</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value" :class="analysisResult.profit_loss_ratio >= 1 ? 'profit' : 'loss'">
+                            {{ analysisResult.profit_loss_ratio.toFixed(2) }}
+                        </div>
+                        <div class="metric-label">盈亏比</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ analysisResult.avg_holding_hours.toFixed(1) }}h</div>
+                        <div class="metric-label">平均持仓时间</div>
+                    </div>
+                    <div class="metric-card">
+                        <div class="metric-value">{{ analysisResult.holding_time_p99.toFixed(1) }}h</div>
+                        <div class="metric-label">持仓时间P99</div>
+                    </div>
+                </div>
+
+                <!-- 跟投收益 -->
+                <div v-if="analysisResult.follow_profit" class="metric-card" style="margin-bottom: 2rem;">
+                    <h3>💰 跟投收益模拟</h3>
+                    <div class="metrics-grid">
+                        <div class="metric-card">
+                            <div class="metric-value">{{ analysisResult.follow_profit.orders_followed }}</div>
+                            <div class="metric-label">跟投订单数</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">{{ analysisResult.follow_profit.initial_capital.toFixed(2) }}U</div>
+                            <div class="metric-label">初始资金</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value">{{ analysisResult.follow_profit.final_capital.toFixed(2) }}U</div>
+                            <div class="metric-label">最终资金</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" :class="analysisResult.follow_profit.total_profit >= 0 ? 'profit' : 'loss'">
+                                {{ analysisResult.follow_profit.total_profit.toFixed(2) }}U
+                            </div>
+                            <div class="metric-label">总收益</div>
+                        </div>
+                        <div class="metric-card">
+                            <div class="metric-value" :class="analysisResult.follow_profit.profit_rate >= 0 ? 'profit' : 'loss'">
+                                {{ analysisResult.follow_profit.profit_rate.toFixed(2) }}%
+                            </div>
+                            <div class="metric-label">收益率</div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- 图表展示 -->
+                <div class="chart-grid">
+                    <!-- 币种频率饼图 -->
+                    <div class="chart-card">
+                        <div class="chart-title">币种交易频率</div>
+                        <div id="coinFrequencyChart" class="chart-container"></div>
+                    </div>
+
+                    <!-- 币种胜率柱状图 -->
+                    <div class="chart-card">
+                        <div class="chart-title">各币种胜率</div>
+                        <div id="coinWinRateChart" class="chart-container"></div>
+                    </div>
+
+                    <!-- 币种盈亏分析 -->
+                    <div class="chart-card">
+                        <div class="chart-title">各币种盈亏</div>
+                        <div id="coinPnlChart" class="chart-container"></div>
+                    </div>
+
+                    <!-- 杠杆使用统计 -->
+                    <div class="chart-card">
+                        <div class="chart-title">杠杆使用统计</div>
+                        <div id="leverageChart" class="chart-container"></div>
+                    </div>
+
+                    <!-- 持仓时间分布 -->
+                    <div class="chart-card">
+                        <div class="chart-title">持仓时间分布</div>
+                        <div id="holdingTimeChart" class="chart-container"></div>
+                    </div>
+
+                    <!-- 交易时间分布 -->
+                    <div class="chart-card">
+                        <div class="chart-title">交易时间分布（小时）</div>
+                        <div id="hourlyChart" class="chart-container"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- 无数据提示 -->
+            <div v-else-if="!loading" style="text-align: center; padding: 3rem; color: #999;">
+                <el-icon size="60"><Document /></el-icon>
+                <p style="margin-top: 1rem;">请输入交易员ID并点击分析按钮开始分析</p>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const { createApp } = Vue;
+        const { ElMessage } = ElementPlus;
+
+        createApp({
+            data() {
+                return {
+                    loading: false,
+                    analysisParams: {
+                        traderId: '',
+                        timeRange: '30d',
+                        initialCapital: 1000,
+                        investPerOrder: 100
+                    },
+                    analysisResult: null,
+                    charts: {}
+                }
+            },
+            methods: {
+                async analyzeTrader() {
+                    if (!this.analysisParams.traderId) {
+                        ElMessage.error('请输入交易员ID');
+                        return;
+                    }
+
+                    this.loading = true;
+                    try {
+                        const params = new URLSearchParams({
+                            time_range: this.analysisParams.timeRange,
+                            initial_capital: this.analysisParams.initialCapital.toString(),
+                            invest_per_order: this.analysisParams.investPerOrder.toString()
+                        });
+
+                        const response = await axios.get(`/api/v1/traders/${this.analysisParams.traderId}/analysis?${params.toString()}`);
+                        
+                        if (response.data.success) {
+                            this.analysisResult = response.data.data;
+                            this.$nextTick(() => {
+                                this.renderCharts();
+                            });
+                            ElMessage.success('分析完成');
+                        } else {
+                            ElMessage.error(response.data.message || '分析失败');
+                        }
+                    } catch (error) {
+                        console.error('Analysis error:', error);
+                        ElMessage.error('分析失败：' + (error.response?.data?.message || error.message));
+                    } finally {
+                        this.loading = false;
+                    }
+                },
+
+                renderCharts() {
+                    this.renderCoinFrequencyChart();
+                    this.renderCoinWinRateChart();
+                    this.renderCoinPnlChart();
+                    this.renderLeverageChart();
+                    this.renderHoldingTimeChart();
+                    this.renderHourlyChart();
+                },
+
+                renderCoinFrequencyChart() {
+                    const chart = echarts.init(document.getElementById('coinFrequencyChart'));
+                    const data = Object.entries(this.analysisResult.coin_frequency)
+                        .map(([coin, count]) => ({ name: coin, value: count }))
+                        .sort((a, b) => b.value - a.value)
+                        .slice(0, 10);
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'item',
+                            formatter: '{a} <br/>{b}: {c} ({d}%)'
+                        },
+                        series: [{
+                            name: '交易次数',
+                            type: 'pie',
+                            radius: '70%',
+                            data: data,
+                            emphasis: {
+                                itemStyle: {
+                                    shadowBlur: 10,
+                                    shadowOffsetX: 0,
+                                    shadowColor: 'rgba(0, 0, 0, 0.5)'
+                                }
+                            }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.coinFrequency = chart;
+                },
+
+                renderCoinWinRateChart() {
+                    const chart = echarts.init(document.getElementById('coinWinRateChart'));
+                    const coins = Object.keys(this.analysisResult.coin_win_rate).slice(0, 10);
+                    const winRates = coins.map(coin => this.analysisResult.coin_win_rate[coin].toFixed(2));
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: { type: 'shadow' }
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: coins,
+                            axisLabel: { rotate: 45 }
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '胜率(%)'
+                        },
+                        series: [{
+                            data: winRates,
+                            type: 'bar',
+                            itemStyle: {
+                                color: function(params) {
+                                    return params.value >= 50 ? '#67c23a' : '#f56c6c';
+                                }
+                            }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.coinWinRate = chart;
+                },
+
+                renderCoinPnlChart() {
+                    const chart = echarts.init(document.getElementById('coinPnlChart'));
+                    const coins = Object.keys(this.analysisResult.coin_pnl).slice(0, 10);
+                    const pnls = coins.map(coin => this.analysisResult.coin_pnl[coin].toFixed(2));
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: { type: 'shadow' }
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: coins,
+                            axisLabel: { rotate: 45 }
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '盈亏(U)'
+                        },
+                        series: [{
+                            data: pnls,
+                            type: 'bar',
+                            itemStyle: {
+                                color: function(params) {
+                                    return params.value >= 0 ? '#67c23a' : '#f56c6c';
+                                }
+                            }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.coinPnl = chart;
+                },
+
+                renderLeverageChart() {
+                    const chart = echarts.init(document.getElementById('leverageChart'));
+                    const data = Object.entries(this.analysisResult.leverage_stats)
+                        .map(([leverage, count]) => ({ name: leverage, value: count }))
+                        .sort((a, b) => parseInt(a.name) - parseInt(b.name));
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'item'
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: data.map(item => item.name)
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '使用次数'
+                        },
+                        series: [{
+                            data: data.map(item => item.value),
+                            type: 'bar',
+                            itemStyle: { color: '#409EFF' }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.leverage = chart;
+                },
+
+                renderHoldingTimeChart() {
+                    const chart = echarts.init(document.getElementById('holdingTimeChart'));
+                    const data = this.analysisResult.holding_time_distribution;
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'axis',
+                            axisPointer: { type: 'shadow' }
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: data.map(item => item.range)
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '比例(%)'
+                        },
+                        series: [{
+                            data: data.map(item => item.rate.toFixed(2)),
+                            type: 'bar',
+                            itemStyle: { color: '#E6A23C' }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.holdingTime = chart;
+                },
+
+                renderHourlyChart() {
+                    const chart = echarts.init(document.getElementById('hourlyChart'));
+                    const hours = Array.from({ length: 24 }, (_, i) => i);
+                    const data = hours.map(hour => this.analysisResult.hourly_stats[hour] || 0);
+
+                    const option = {
+                        tooltip: {
+                            trigger: 'axis'
+                        },
+                        xAxis: {
+                            type: 'category',
+                            data: hours.map(h => h + ':00')
+                        },
+                        yAxis: {
+                            type: 'value',
+                            name: '交易次数'
+                        },
+                        series: [{
+                            data: data,
+                            type: 'line',
+                            smooth: true,
+                            itemStyle: { color: '#67c23a' },
+                            areaStyle: { opacity: 0.3 }
+                        }]
+                    };
+                    chart.setOption(option);
+                    this.charts.hourly = chart;
+                }
+            },
+
+            mounted() {
+                // 从URL参数获取交易员ID和名称
+                const urlParams = new URLSearchParams(window.location.search);
+                const traderId = urlParams.get('trader_id');
+                const traderName = urlParams.get('trader_name');
+                
+                if (traderId) {
+                    this.analysisParams.traderId = traderId;
+                    // 如果有交易员名称，更新页面标题
+                    if (traderName) {
+                        document.title = `${decodeURIComponent(traderName)} - 交易员分析报告`;
+                        // 可以选择更新页面头部显示
+                        const headerElement = document.querySelector('.header h1');
+                        if (headerElement) {
+                            headerElement.innerHTML = `📊 ${decodeURIComponent(traderName)} - 交易员分析报告`;
+                        }
+                    }
+                    // 自动开始分析
+                    this.analyzeTrader();
+                }
+
+                // 响应式图表
+                window.addEventListener('resize', () => {
+                    Object.values(this.charts).forEach(chart => {
+                        chart.resize();
+                    });
+                });
+            }
+        }).use(ElementPlus).mount('#app');
+    </script>
+</body>
+</html>

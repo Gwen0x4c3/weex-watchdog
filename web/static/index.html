@@ -93,7 +93,7 @@
                             {{ formatDate(scope.row.created_at) }}
                         </template>
                     </el-table-column>
-                    <el-table-column label="操作">
+                    <el-table-column label="操作" width="300">
                         <template #default="scope">
                             <el-button size="small" @click="editTrader(scope.row)">编辑</el-button>
                             <el-button 
@@ -102,6 +102,7 @@
                                 @click="toggleTrader(scope.row)">
                                 {{ scope.row.is_active ? '暂停' : '启用' }}
                             </el-button>
+                            <el-button size="small" type="info" @click="analyzeTrader(scope.row)">分析</el-button>
                             <el-button size="small" type="danger" @click="deleteTrader(scope.row)">删除</el-button>
                         </template>
                     </el-table-column>
@@ -822,6 +823,12 @@
                 handleOrderPageChange(page) {
                     this.orderPage = page;
                     this.loadOrdersWithFilters();
+                },
+                analyzeTrader(trader) {
+                    // 跳转到交易员分析页面，并传递交易员ID作为URL参数
+                    const baseUrl = window.location.origin;
+                    const analysisUrl = `${baseUrl}/static/trader_analysis.html?trader_id=${trader.trader_user_id}&trader_name=${encodeURIComponent(trader.trader_name)}`;
+                    window.open(analysisUrl, '_blank');
                 },
                 formatDate(dateStr) {
                     return new Date(dateStr).toLocaleString('zh-CN');

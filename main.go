@@ -13,6 +13,7 @@ import (
 	"weex-watchdog/internal/api/handler"
 	"weex-watchdog/internal/repository"
 	"weex-watchdog/internal/service"
+	"weex-watchdog/pkg/cache"
 	"weex-watchdog/pkg/database"
 	"weex-watchdog/pkg/logger"
 	"weex-watchdog/pkg/notification"
@@ -83,6 +84,9 @@ func main() {
 	orderRepo := repository.NewOrderRepository(db)
 	notificationRepo := repository.NewNotificationRepository(db)
 
+	// 初始化缓存
+	memoryCache := cache.NewMemoryCache()
+
 	// 初始化通知服务
 	notificationClient, err := notification.CreateClient(&config.Notification)
 	if err != nil {
@@ -93,6 +97,7 @@ func main() {
 	// 初始化业务服务
 	orderService := service.NewOrderService(orderRepo, appLogger)
 	traderService := service.NewTraderService(traderRepo, orderService, appLogger)
+	traderAnalysisService := service.NewTraderAnalysisService(memoryCache, appLogger)  // 添加交易员分析服务
 	notificationService := service.NewNotificationService(notificationRepo, notificationClient, appLogger)
 	monitorService := service.NewMonitorService(
 		traderRepo,
@@ -108,6 +113,7 @@ func main() {
 	traderHandler := handler.NewTraderHandler(traderService, appLogger)
 	orderHandler := handler.NewOrderHandler(orderService, appLogger)
 	notificationHandler := handler.NewNotificationHandler(notificationService, appLogger)
+	analysisHandler := handler.NewTraderAnalysisHandler(traderAnalysisService, appLogger)  // 添加分析处理器
 
 	// 设置Gin模式
 	gin.SetMode(config.Server.Mode)
@@ -116,7 +122,7 @@ func main() {
 	engine := gin.New()
 
 	// 设置路由
-	router := api.NewRouter(traderHandler, orderHandler, notificationHandler)
+	router := api.NewRouter(traderHandler, orderHandler, notificationHandler, analysisHandler)
 	router.SetupRoutes(engine)
 
 	// 启动监控服务

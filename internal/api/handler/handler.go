@@ -232,6 +232,52 @@ func (h *TraderHandler) ToggleMonitor(c *gin.Context) {
 	})
 }
 
+// TraderAnalysisHandler 交易员分析处理器
+type TraderAnalysisHandler struct {
+	analysisService *service.TraderAnalysisService
+	logger          *logger.Logger
+}
+
+// NewTraderAnalysisHandler 创建交易员分析处理器
+func NewTraderAnalysisHandler(analysisService *service.TraderAnalysisService, logger *logger.Logger) *TraderAnalysisHandler {
+	return &TraderAnalysisHandler{
+		analysisService: analysisService,
+		logger:          logger,
+	}
+}
+
+// AnalyzeTrader 分析交易员
+func (h *TraderAnalysisHandler) AnalyzeTrader(c *gin.Context) {
+	traderID := c.Param("id")
+	if traderID == "" {
+		c.JSON(http.StatusBadRequest, Response{
+			Success: false,
+			Message: "Trader ID is required",
+		})
+		return
+	}
+
+	timeRange := c.DefaultQuery("time_range", "30d")
+	initialCapital, _ := strconv.ParseFloat(c.Query("initial_capital"), 64)
+	investPerOrder, _ := strconv.ParseFloat(c.Query("invest_per_order"), 64)
+
+	result, err := h.analysisService.AnalyzeTrader(traderID, timeRange, initialCapital, investPerOrder)
+	if err != nil {
+		h.logger.WithField("error", err).Error("Failed to analyze trader")
+		c.JSON(http.StatusInternalServerError, Response{
+			Success: false,
+			Message: "Failed to analyze trader: " + err.Error(),
+		})
+		return
+	}
+
+	c.JSON(http.StatusOK, Response{
+		Success: true,
+		Message: "Trader analysis completed successfully",
+		Data:    result,
+	})
+}
+
 // OrderHandler 订单处理器
 type OrderHandler struct {
 	orderService *service.OrderService

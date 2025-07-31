@@ -22,6 +22,21 @@ type GetOpenOrderListResponse struct {
 	}
 }
 
+type GetHistoryOrderListRequest struct {
+	TraderUserID  string `json:"traderUserId"`
+	CurrentUserID string `json:"currentUserId"`
+	PageSize      int    `json:"pageSize"`
+	LanguageType  int    `json:"languageType"`
+}
+
+type GetHistoryOrderListResponse struct {
+	WeexBaseResponse
+	Data struct {
+		NextFlag bool        `json:"nextFlag"`
+		Rows     []OpenOrder `json:"rows"`
+	} `json:"data"`
+}
+
 type GetMetaDataV2Response struct {
 	WeexBaseResponse
 	Data struct {

@@ -12,6 +12,7 @@ type Router struct {
 	traderHandler       *handler.TraderHandler
 	orderHandler        *handler.OrderHandler
 	notificationHandler *handler.NotificationHandler
+	analysisHandler     *handler.TraderAnalysisHandler
 }
 
 // NewRouter 创建新的路由器
@@ -19,11 +20,13 @@ func NewRouter(
 	traderHandler *handler.TraderHandler,
 	orderHandler *handler.OrderHandler,
 	notificationHandler *handler.NotificationHandler,
+	analysisHandler *handler.TraderAnalysisHandler,
 ) *Router {
 	return &Router{
 		traderHandler:       traderHandler,
 		orderHandler:        orderHandler,
 		notificationHandler: notificationHandler,
+		analysisHandler:     analysisHandler,
 	}
 }
 
@@ -45,6 +48,7 @@ func (r *Router) SetupRoutes(engine *gin.Engine) {
 			traders.PUT("/:id", r.traderHandler.UpdateTrader)
 			traders.DELETE("/:id", r.traderHandler.DeleteTrader)
 			traders.POST("/:id/toggle", r.traderHandler.ToggleMonitor)
+			traders.GET("/:id/analysis", r.analysisHandler.AnalyzeTrader)
 		}
 
 		// 订单管理

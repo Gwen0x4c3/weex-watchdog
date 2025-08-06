@@ -41,3 +41,8 @@ log:
   level: info
   format: json
   output: both
+
+auth:
+  username: "admin"
+  password: "your_strong_password"
+  aes_key: "your_32_byte_aes_secret_key_1234"

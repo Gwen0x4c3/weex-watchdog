@@ -11,6 +11,7 @@ import (
 
 	"weex-watchdog/internal/api"
 	"weex-watchdog/internal/api/handler"
+	"weex-watchdog/internal/config"
 	"weex-watchdog/internal/repository"
 	"weex-watchdog/internal/service"
 	"weex-watchdog/pkg/cache"
@@ -20,31 +21,6 @@ import (
 	"weex-watchdog/pkg/weex"
 )
 
-// Config 应用配置
-type Config struct {
-	Server struct {
-		Port string `mapstructure:"port"`
-		Mode string `mapstructure:"mode"`
-	} `mapstructure:"server"`
-	Database     database.Config     `mapstructure:"database"`
-	Log          logger.Config       `mapstructure:"log"`
-	Weex         WeexConfig          `mapstructure:"weex"`
-	Monitor      MonitorConfig       `mapstructure:"monitor"`
-	Notification notification.Config `mapstructure:"notification"`
-}
-
-// WeexConfig Weex API配置
-type WeexConfig struct {
-	APIURL     string `mapstructure:"api_url"`
-	Timeout    string `mapstructure:"timeout"`
-	RetryTimes int    `mapstructure:"retry_times"`
-}
-
-// MonitorConfig 监控配置
-type MonitorConfig struct {
-	DefaultInterval string `mapstructure:"default_interval"`
-	MaxGoroutines   int    `mapstructure:"max_goroutines"`
-}
 
 func main() {
 	var configFile string
@@ -114,6 +90,7 @@ func main() {
 	orderHandler := handler.NewOrderHandler(orderService, appLogger)
 	notificationHandler := handler.NewNotificationHandler(notificationService, appLogger)
 	analysisHandler := handler.NewTraderAnalysisHandler(traderAnalysisService, appLogger)  // 添加分析处理器
+	authHandler := handler.NewAuthHandler(config.Auth.Username, config.Auth.Password, []byte(config.Auth.AESKey), appLogger)
 
 	// 设置Gin模式
 	gin.SetMode(config.Server.Mode)
@@ -122,7 +99,7 @@ func main() {
 	engine := gin.New()
 
 	// 设置路由
-	router := api.NewRouter(traderHandler, orderHandler, notificationHandler, analysisHandler)
+	router := api.NewRouter(traderHandler, orderHandler, notificationHandler, analysisHandler, authHandler, []byte(config.Auth.AESKey), config.Auth.Username, config.Auth.Password)
 	router.SetupRoutes(engine)
 
 	// 启动监控服务
@@ -142,7 +119,7 @@ func main() {
 }
 
 // loadConfig 加载配置文件
-func loadConfig(configFile string) (*Config, error) {
+func loadConfig(configFile string) (*config.Config, error) {
 	viper.SetConfigFile(configFile)
 
 	// 设置默认值
@@ -166,10 +143,10 @@ func loadConfig(configFile string) (*Config, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config Config
-	if err := viper.Unmarshal(&config); err != nil {
+	var cfg config.Config
+	if err := viper.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("failed to unmarshal config: %w", err)
 	}
 
-	return &config, nil
+	return &cfg, nil
 }

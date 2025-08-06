@@ -277,6 +277,33 @@
         const { createApp } = Vue;
         const { ElMessage } = ElementPlus;
 
+        // 1. Axios Interceptors for Auth
+        // Request interceptor to add token to headers
+        axios.interceptors.request.use(config => {
+            const token = localStorage.getItem('authToken');
+            if (token) {
+                config.headers.Token = token;
+            }
+            return config;
+        }, error => {
+            return Promise.reject(error);
+        });
+
+        // Response interceptor to handle 401 Unauthorized
+        axios.interceptors.response.use(response => {
+            return response;
+        }, error => {
+            if (error.response && error.response.status === 401) {
+                ElMessage.error('登录已过期，请重新登录');
+                localStorage.removeItem('authToken');
+                // Redirect to login page after a short delay
+                setTimeout(() => {
+                    window.location.href = '/';
+                }, 1500);
+            }
+            return Promise.reject(error);
+        });
+
         createApp({
             data() {
                 return {
